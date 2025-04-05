@@ -4,13 +4,15 @@
 
 by [Mykola Lavreniuk](https://scholar.google.com/citations?hl=en&user=-oFR-RYAAAAJ), [Nataliia Kussul](https://scholar.google.com/citations?user=e3TWBuwAAAAJ&hl=en), [Andrii Shelestov](https://scholar.google.com/citations?user=tqoQKZAAAAAJ&hl=en), [Bohdan Yailymov](https://scholar.google.com/citations?user=XaN-oukAAAAJ&hl=en), [Yevhenii Salii](https://scholar.google.com/citations?user=4jgAsBIAAAAJ&hl=en), [Volodymyr Kuzin](https://www.researchgate.net/profile/Volodymyr-Kuzin), [Zoltan Szantoi](https://scholar.google.com/citations?user=P_pyhi8AAAAJ&hl=en)
 
+> Upcoming Release!
+> The code, pre-trained models, and the FBIS-22M dataset are currently being prepared for release and will be available here shortly. Please upvote this repository to ensure you don't miss any updates! Stay tuned for more information.
+
 This repository contains PyTorch implementation for paper "Delineate Anything: Resolution-Agnostic Field Boundary Delineation on Satellite Imagery". 
 
-Trained on the 22M+ instances in the FBIS-22M dataset, **Delineate Anything** sets a new state-of-the-art by accurately delineating individual agricultural field boundaries across diverse satellite resolutions and geographic regions.
+Trained on the 22M+ instances in the FBIS-22M dataset, **Delineate Anything** sets a new SOTA by accurately delineating individual agricultural field boundaries across diverse satellite resolutions and geographic regions.
 
 ![intro](figs/intro.jpg)
 
-The code, pre-trained models, and the FBIS-22M dataset are currently being prepared for release and will be available here shortly. Please upvote this repository to ensure you don't miss any updates! Stay tuned for more information.
 
 ## License
 This project is licensed under the AGPL-3.0 License.
