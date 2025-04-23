@@ -20,8 +20,6 @@ Trained on the 22M+ instances in the FBIS-22M dataset, **Delineate Anything** se
 | **DelineateAnything-S** | 0.632   | 0.383        | 16.8         | 17.6 MB  | [Download](https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything-S.pt?download=true) |
 | **DelineateAnything**   | 0.720   | 0.477        | 25.0         | 125 MB   | [Download](https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything.pt?download=true) |
 
-Download one of the models and set the path in `inference.py` before running.
-
 ## ⚙️ Environment Setup
 
 To set up the environment on a Linux system:
@@ -37,6 +35,7 @@ conda install -c conda-forge gdal
 
 pip install torch==2.6.0
 pip install ultralytics==8.3.96
+pip install huggingface_hub==0.30.2
 ```
 
 ## 🚀 Inference
@@ -44,15 +43,18 @@ pip install ultralytics==8.3.96
 1. Place your RGB images into the `images/` folder.  
    _(Three Sentinel-2 sample images are provided for testing.)_
 
-2. Download one of the pre-trained models from the “Pre-trained Models” table above.
-
-3. Run the inference script:
+2. Run the inference script:
 
    ```bash
    python inference.py
    ```
-4. The vectorized field boundaries will be saved as a GeoPackage here:
-```result/result.gpkg```
+   By default, this will run with the argument ```--model_name DelineateAnything-S.pt```
+   To use the large model instead, run:
+   ```bash
+   python inference.py --model_name DelineateAnything.pt
+   ```
+   The vectorized field boundaries will be saved as a GeoPackage at:
+   ```result/result.gpkg```
 
 
 ℹ️ Tip: You can adjust MINIMAL_CONFIDENCE in inference.py (currently set to 0.175) to control the sensitivity of field detection. Lower values may detect more boundaries but will increase the inference time.
