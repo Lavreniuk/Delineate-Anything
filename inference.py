@@ -7,7 +7,8 @@ from utils import *
 from osgeo import gdal, osr, ogr
 import shutil
 import math
-
+from huggingface_hub import hf_hub_download
+import argparse
 import torch
 import torchvision
 
@@ -19,7 +20,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print("Device:", device)
 
 # Configuration Constants - Define all the configuration variables here for easy access
-MODEL_WEIGHT_PATH = "DelineateAnything.pt"
 SRC_FOLDER = "images"
 AUTO_CROP_RESOLUTION_SELECTION = True
 TEMP_FOLDER = "temp"
@@ -138,8 +138,17 @@ def get_pixel_size_meters(tiff_path):
     return 0.5 * (width_meters + height_meters)
 
 def main():
+    parser = argparse.ArgumentParser(description="Run DelineateAnything model.")
+    parser.add_argument(
+        "--model_name", 
+        type=str, 
+        default="DelineateAnything-S.pt", 
+        help="Model file name (e.g., DelineateAnything.pt or DelineateAnything-S.pt)"
+    )
+    args = parser.parse_args()
+    filepath = hf_hub_download(repo_id="MykolaL/DelineateAnything", filename=args.model_name)
+    
     time_start = time.time()  # Initialize time_start for execution time tracking
-
     # Ensure the output folder exists
     create_output_folder(TEMP_FOLDER)
     create_output_folder(OUTPUT_FOLDER)
@@ -152,7 +161,7 @@ def main():
         return
 
     logger.info("Loading the model...")
-    model = YOLO(MODEL_WEIGHT_PATH).to(device)
+    model = YOLO(filepath).to(device)
     logger.info("Model has been loaded.")
 
     time_delineate_start = time.time()
