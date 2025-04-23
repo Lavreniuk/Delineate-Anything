@@ -19,7 +19,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print("Device:", device)
 
 # Configuration Constants - Define all the configuration variables here for easy access
-MODEL_WEIGHT_PATH = "test.pt"
+MODEL_WEIGHT_PATH = "DelineateAnything.pt"
 SRC_FOLDER = "images"
 AUTO_CROP_RESOLUTION_SELECTION = True
 TEMP_FOLDER = "temp"
