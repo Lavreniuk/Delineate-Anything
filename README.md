@@ -17,8 +17,8 @@ Trained on the 22M+ instances in the FBIS-22M dataset, **Delineate Anything** se
 
 | Method                 | mAP@0.5 | mAP@0.5:0.95 | Latency (ms) | Size     | Download |
 |------------------------|---------|--------------|--------------|----------|----------|
-| **DelineateAnything-S** | 0.632   | 0.383        | 16.8         | 17.6 MB  | [Download](https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything-S.pt?download=true) |
-| **DelineateAnything**   | 0.720   | 0.477        | 25.0         | 125 MB   | [Download](https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything.pt?download=true) |
+| **Delineate Anything S** | 0.632   | 0.383        | 16.8         | 17.6 MB  | [Download](https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything-S.pt?download=true) |
+| **Delineate Anything**   | 0.720   | 0.477        | 25.0         | 125 MB   | [Download](https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything.pt?download=true) |
 
 ## ⚙️ Environment Setup
 
