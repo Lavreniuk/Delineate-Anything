@@ -1,6 +1,7 @@
 # Delineate Anything: Resolution-Agnostic Field Boundary Delineation on Satellite Imagery
 <a href='https://lavreniuk.github.io/Delineate-Anything/'><img src='https://img.shields.io/badge/Project-Page-Green'></a> <a href='https://arxiv.org/abs/2504.02534'><img src='https://img.shields.io/badge/Paper-Arxiv-red'></a>
 
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/delineate-anything-resolution-agnostic-field/field-boundary-delineation-on-fbis-22m)](https://paperswithcode.com/sota/field-boundary-delineation-on-fbis-22m?p=delineate-anything-resolution-agnostic-field)
 
 by [Mykola Lavreniuk](https://scholar.google.com/citations?hl=en&user=-oFR-RYAAAAJ), [Nataliia Kussul](https://scholar.google.com/citations?user=e3TWBuwAAAAJ&hl=en), [Andrii Shelestov](https://scholar.google.com/citations?user=tqoQKZAAAAAJ&hl=en), [Bohdan Yailymov](https://scholar.google.com/citations?user=XaN-oukAAAAJ&hl=en), [Yevhenii Salii](https://scholar.google.com/citations?user=4jgAsBIAAAAJ&hl=en), [Volodymyr Kuzin](https://www.researchgate.net/profile/Volodymyr-Kuzin), [Zoltan Szantoi](https://scholar.google.com/citations?user=P_pyhi8AAAAJ&hl=en)
 
