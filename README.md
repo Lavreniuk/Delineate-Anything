@@ -4,7 +4,9 @@
 <a href='https://labs-417310.projects.earthengine.app/view/ua2024fields'><img src='https://img.shields.io/badge/Map-UA_Fields_2024-blue'></a>
 
 
-<img src="figs/logo.jpg" alt="intro" width="224"/>
+<p align="center">
+  <img src="figs/logo.jpg" alt="intro" width="224"/>
+</p>
 
 
 by [Mykola Lavreniuk](https://scholar.google.com/citations?hl=en&user=-oFR-RYAAAAJ), [Nataliia Kussul](https://scholar.google.com/citations?user=e3TWBuwAAAAJ&hl=en), [Andrii Shelestov](https://scholar.google.com/citations?user=tqoQKZAAAAAJ&hl=en), [Bohdan Yailymov](https://scholar.google.com/citations?user=XaN-oukAAAAJ&hl=en), [Yevhenii Salii](https://scholar.google.com/citations?user=4jgAsBIAAAAJ&hl=en), [Volodymyr Kuzin](https://www.researchgate.net/profile/Volodymyr-Kuzin), [Zoltan Szantoi](https://scholar.google.com/citations?user=P_pyhi8AAAAJ&hl=en)
