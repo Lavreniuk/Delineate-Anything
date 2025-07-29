@@ -66,6 +66,7 @@ pip install -r requirements.txt
    ```data/delineated/```
 
 3. (Optional) To shift the resulting vector geometries:
+   
    Shift using image pixels:
    ```
    python shift.py -i PATH_TO_SRC_GPKG -o PATH_TO_DST_GPKG -s PATH_TO_SAMPLE_IMAGE -x SHIFT_PIXELS_X -y SHIFT_PIXELS_Y
