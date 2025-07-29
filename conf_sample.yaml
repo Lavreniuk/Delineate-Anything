@@ -1,0 +1,69 @@
+model: ["large"] # Model names: "small" or "large". Can be a list.
+method: main # Name of the method subfolder in 'methods'.
+
+execution_args:
+  src_folder: ""
+  temp_folder: ""
+  output_path: ""
+  keep_temp: false
+  mask_filepath: null
+
+# Image scaling factor. Null means auto (1 for <5m, 2 for >=5m resolution). Use powers of 2 only (1, 2, 4, etc.). Uses cubic interpolation.
+super_resolution: null
+
+mask_info:
+  range: 24               # Number of classes in the mask, or null if it includes negative values
+  filter_classes: [1, 10, 12, 23]  # Classes used to remove whole polygons on overlap
+  clip_classes: [0, 13, 14]        # Classes used to clip overlapping polygon areas
+
+
+data_loader:
+  bands: [3, 2, 1]        # Bands to use from the image (GDAL index, 1-based). For RGB use [3,2,1]
+  nodata_band: null       # Optional nodata band (GDAL index)
+  nodata_value: [0, 0, 0] # Pixel value considered as nodata. Use [0, 0, 0] for black or null for none
+  min: null               # Min value for normalization (overridden automatically)
+  max: null               # Max value for normalization (overridden automatically)
+
+
+execution_planner:
+  region_width: 4096      # Width of processing region (in pixels)
+  region_height: 4096     # Height of processing region (in pixels)
+  pixel_offset: [-1, -1]  # Pixel overlap between regions
+
+postprocess_limits: 
+  num_workers: [2, 2]
+  queue_tiles_capacity: 32
+  max_tiles_inflight: 64
+  
+passes:
+  - batch_size: 16            # Number of tiles per batch
+    tile_size: null           # Not supported, keep null
+    tile_step: 0.5            # Tile overlap ratio
+    model_args:
+      - name: large
+        minimal_confidence: 0.005
+        use_half: true        # Use FP16 inference if supported
+
+    delineation_config:
+      pixel_area_threshold: 512
+      remaining_area_threshold: 0.8
+      compose_merge_iou: 0.8
+
+      merge_iou: 0.8
+      merge_relative_area_threshold: 0.5
+      merge_asymetric_pixel_area_threshold: 32
+      merge_asymetric_relative_area_threshold: 0.7
+
+      # Prefer not to change these unless needed
+      merging_edge_width: 4
+      merge_edge_iou: 0.6
+      merge_edge_pixels: 192
+
+polygonization_args:
+  layer_name: fields
+  override_if_exists: true
+
+filtering_args:
+  minimum_area_m2: 2500
+  minimum_part_area_m2: 0
+  minimum_hole_area_m2: 2500

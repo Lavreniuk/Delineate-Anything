@@ -1,0 +1,20 @@
+base_config: conf_sample.yaml
+
+# change for your data paths
+data_root: data/images
+output_root: data/delineated
+temp_root: data/temp
+keep_temp: false
+mask_root: data/masks
+
+# null if use all subfolders or exclude is not null
+include: 
+  - Sample
+
+# null if use all subfolders or include is not null
+exclude: null
+
+# in case if you don't want to duplicate lclu files you can directly specify path to it
+override: null
+  # - entry: Sample
+  #   mask: data/masks/Sample.tif
