@@ -28,7 +28,7 @@ data_loader:
 execution_planner:
   region_width: 4096      # Width of processing region (in pixels)
   region_height: 4096     # Height of processing region (in pixels)
-  pixel_offset: [-1, -1]  # Pixel overlap between regions
+  pixel_offset: [-1, -1]  # Pixel shift of input data relative to output region
 
 postprocess_limits: 
   num_workers: [2, 2]
