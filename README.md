@@ -2,7 +2,8 @@
 <a href='https://lavreniuk.github.io/Delineate-Anything/'><img src='https://img.shields.io/badge/Project-Page-Green'></a>
 <a href='https://arxiv.org/abs/2504.02534'><img src='https://img.shields.io/badge/Paper-Arxiv-red'></a>
 <a href='https://delineate-anything.projects.earthengine.app/view/ua2024fields'><img src='https://img.shields.io/badge/Map-UA_Fields_2024-blue'></a>
-
+<a href='https://huggingface.co/datasets/MykolaL/FBIS-22M'><img src='https://img.shields.io/badge/Dataset-HuggingFace-DA0000'></a>
+<a href='https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing'><img src='https://img.shields.io/badge/Colab-Demo-F9AB00'></a>
 
 <p align="center">
   <img src="figs/logo.jpg" alt="intro" width="224"/>
@@ -52,6 +53,7 @@ pip install -r requirements.txt
 
 
 ## 🚀 Inference
+💡 Try the Colab demo first, **no installation needed**, or run locally if you prefer full control.
 
 1. Place your RGB images in the `data/images/` folder. If available, also include the corresponding land cover map in the `data/masks/`
    _(Three Sentinel-2 sample images and a land cover map are provided for testing.)_
