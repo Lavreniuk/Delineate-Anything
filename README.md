@@ -6,7 +6,7 @@
 <a href='https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing'><img src='https://img.shields.io/badge/Colab-Demo-F9AB00'></a>
 
 <p align="center">
-  <img src="figs/logo.jpg" alt="intro" width="224"/>
+  <img src="figs/logo.jpg" alt="intro" width="448"/>
 </p>
 
 
