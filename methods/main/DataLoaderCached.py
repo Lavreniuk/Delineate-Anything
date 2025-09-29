@@ -4,6 +4,7 @@ import cv2
 
 class DataLoaderCached:
     def __init__(self, plan, config, batch_size, lclu_path, lclu_config):
+        self.skip = config["skip"]
         self.bands = config["bands"]
         self.nodata_band = config["nodata_band"]
         self.nodata_value = config["nodata_value"]
@@ -27,6 +28,9 @@ class DataLoaderCached:
         self.offset = self.plan["infile_begin"].copy()
 
     def is_compatible(self, plan):
+        if self.skip:
+            return True
+
         if self.init_plan["file"] != plan["file"]:
             return False
         
@@ -43,6 +47,9 @@ class DataLoaderCached:
         self.pos = self.plan["infile_begin"].copy()
 
     def get_batch(self):
+        if self.skip:
+            return None, None, None
+
         batchCounter = 0
         batch_images = []
         batch_nodata = []
@@ -109,6 +116,9 @@ class DataLoaderCached:
             return None, None, None
 
     def __load_image(self):
+        if self.skip:
+            return
+
         ds = gdal.Open(self.plan["file"], gdal.GF_Read)
 
         begin_offset = self.plan["infile_begin"]
@@ -148,7 +158,7 @@ class DataLoaderCached:
         self.image_cache[:, :, -1] = cv2.erode(self.image_cache[:, :, -2], np.ones((5, 5)))
 
     def __load_lclu(self, lclu_path):
-        if lclu_path is None:
+        if self.skip or lclu_path is None:
             return
 
         lclu_ds = gdal.Open(lclu_path, gdal.GF_Read)
@@ -189,8 +199,3 @@ class DataLoaderCached:
 
             self.image_cache[y_begin:y_end, x_begin:x_end, -2] &= clip_map[lclu]
             self.image_cache[y_begin:y_end, x_begin:x_end, -1] &= filter_map[lclu]
-            
-
-
-
-

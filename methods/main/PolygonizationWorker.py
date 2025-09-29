@@ -22,9 +22,16 @@ class PolygonizationWorker:
         min_part_area_m2 = config["minimum_part_area_m2"]
         min_hole_area_m2 = config["minimum_hole_area_m2"]
 
+        min_background_field_area_m2 = config["minimum_background_field_area_m2"]
+        min_background_field_hole_area_m2 = config["minimum_background_field_hole_area_m2"]
+
+        middleground_offset = config["middleground_offset"]
+        min_middleground_field_area_m2 = config["minimum_middleground_field_area_m2"]
+        min_middleground_field_hole_area_m2 = config["minimum_middleground_field_hole_area_m2"]
+
         gt = geotransform
         affine_transform = Affine.from_gdal(*gt)
-        shapes_generator = features.shapes(array, mask=(array > 1))
+        shapes_generator = features.shapes(array, mask=(array < 0) | (array > 1))
         shapes_generator = list(shapes_generator) 
         
         equal_area_srs = osr.SpatialReference()
@@ -38,7 +45,7 @@ class PolygonizationWorker:
         shapely_params = (a, b, d, e, c, f)
 
         for geom_json, value in shapes_generator:
-            if value < 2:
+            if value >= 0 and value < 2:
                 continue
 
             geom = shape(geom_json)
@@ -57,12 +64,25 @@ class PolygonizationWorker:
             if ogr_geom is None or ogr_geom.IsEmpty():
                 continue
             
-            ogr_geom, area = PolygonizationWorker.remove_holes(ogr_geom, min_hole_area_m2, coord_transform)
-            if (touches_edge and area < min_part_area_m2) or (not touches_edge and area < min_area_m2):
-                continue
+            isBackground = value < 0
+            isMiddleground = isBackground and (value > -middleground_offset)
+            if not isBackground:
+                ogr_geom, area = PolygonizationWorker.remove_holes(ogr_geom, min_hole_area_m2, coord_transform)
+            elif not isMiddleground:
+                ogr_geom, area = PolygonizationWorker.remove_holes(ogr_geom, min_background_field_hole_area_m2, coord_transform)
+            else:
+                ogr_geom, area = PolygonizationWorker.remove_holes(ogr_geom, min_middleground_field_hole_area_m2, coord_transform)
+
+            if (not isBackground and ((touches_edge and area < min_part_area_m2) or (not touches_edge and area < min_area_m2))) or\
+               (isBackground and not isMiddleground and (area < min_background_field_area_m2)) or\
+                (isMiddleground and (area < min_middleground_field_area_m2)):
+               continue
             
-            result_id = int(value) if touches_edge else -int(value)
-            queue.put((ogr_geom.ExportToWkb(), float(area), result_id))
+            result_id = -int(value) if touches_edge else int(value)
+            if isBackground:
+                result_id = -result_id
+
+            queue.put((ogr_geom.ExportToWkb(), float(area), result_id, int(isBackground)))
 
     @staticmethod
     def remove_holes(geom, min_hole_area, transform):

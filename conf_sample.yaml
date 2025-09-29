@@ -11,13 +11,21 @@ execution_args:
 # Image scaling factor. Null means auto (1 for <5m, 2 for >=5m resolution). Use powers of 2 only (1, 2, 4, etc.). Uses cubic interpolation.
 super_resolution: null
 
+# Treat images as part of 1 image instead of separate
+treat_as_vrt: false
+
 mask_info:
   range: 24               # Number of classes in the mask, or null if it includes negative values
   filter_classes: [1, 10, 12, 23]  # Classes used to remove whole polygons on overlap
   clip_classes: [0, 13, 14]        # Classes used to clip overlapping polygon areas
 
+background_info:
+  # Add these classes as the background to the delineated fields to cover regions in case of model failure
+  background_classes_from_mask: [] # something like: [2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 19, 20, 21, 27, 28, 38]
+  additional_source: null # something like: ["prev_year_delineation.gpkg", "fields"]
 
 data_loader:
+  skip: False             # True - all data is nodata; False - normal mode
   bands: [3, 2, 1]        # Bands to use from the image (GDAL index, 1-based). For RGB use [3,2,1]
   nodata_band: null       # Optional nodata band (GDAL index)
   nodata_value: [0, 0, 0] # Pixel value considered as nodata. Use [0, 0, 0] for black or null for none
@@ -67,3 +75,22 @@ filtering_args:
   minimum_area_m2: 2500
   minimum_part_area_m2: 0
   minimum_hole_area_m2: 2500
+
+  # fields based on lclu
+  minimum_background_field_area_m2: 50000
+  minimum_background_field_hole_area_m2: 25000
+
+  # fields from different vector layer
+  # internal use only, will be overwritten
+  middleground_offset: null
+  # free to edit
+  minimum_middleground_field_area_m2: 10000
+  minimum_middleground_field_hole_area_m2: 5000
+
+simplification_args:
+  simplify: True
+  epsilon_scale: 1
+  # how many processes spawn for the task. -1 - all available cpus
+  num_workers: -1
+  # 1 byte per pixel => 65k*65k = 4GB, 32k*32k = 1GB. Some system cant handle arrays bigger than 32k*32k due to int overflow
+  raster_resolution: [8096, 8096]

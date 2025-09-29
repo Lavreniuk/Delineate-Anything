@@ -11,6 +11,9 @@ from .DataLoaderCached import DataLoaderCached
 from . import PostprocHandler as PostprocHandlerLib
 from .PostprocHandler import PostprocHandler
 from .PolygonizationWorker import PolygonizationWorker
+from .BackgroundLoader import BackgroundLoader
+
+from simplification import simplify
 
 from osgeo import gdal, osr, ogr
 import shutil
@@ -49,6 +52,13 @@ def execute(model_paths, config, verbose):
     create_output_folder(os.path.dirname(output_path))
 
     tiffs = [os.path.join(src_folder, file) for file in os.listdir(src_folder) if (file.endswith(".tif") or file.endswith(".tiff"))]
+    if config["treat_as_vrt"]:
+        vrt_path = os.path.join(temp_folder, os.path.basename(src_folder) + ".vrt")
+        gdal.BuildVRT(vrt_path, tiffs)
+        tiffs = [vrt_path]
+
+    print(tiffs)
+
     analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"])
     if not analyser.isCompatible():
         logger.error(f"Incompatible tiff files. Ensure the same projection and pixel size fo each file in the folder.")
@@ -77,7 +87,8 @@ def execute(model_paths, config, verbose):
 
     gpkg_path, layer_name = create_geopackage_with_same_projection(
             output_path, config["polygonization_args"]["layer_name"], analyser.projection,
-            override_if_exists=config["polygonization_args"]["override_if_exists"]
+            override_if_exists=config["polygonization_args"]["override_if_exists"],
+            pixel_size=[analyser.pixel_size_x / analyser.scale, analyser.pixel_size_y / analyser.scale]
         )
 
     time_delineate_start = time.time()
@@ -100,14 +111,45 @@ def execute(model_paths, config, verbose):
 
         logger.info("Temporary files have been deleted.")
     
-    logger.info(f"Execution finished in {time.time() - time_start:.2f} seconds.")
+    logger.info(f"Delineation finished in {time.time() - time_start:.2f} seconds.")
+
+    if config["simplification_args"]["simplify"] == True:
+        start = time.time()
+        logger.info("Simplification started")
+        execute_simplification(gpkg_path, layer_name, config["simplification_args"], analyser.scale)
+        logger.info(f"Simplification finished in {time.time() - start:.2f} seconds")
+
+def execute_simplification(gpkg_path, layer_name, config, scale):
+    full_config = {
+        "src": gpkg_path,
+        "dst": gpkg_path.replace(".gpkg", ".simp.gpkg"),
+        "superres_scale": scale,
+        "epsilon_scale": config["epsilon_scale"],
+        # how many processes spawn for the task. -1 - all available cpus
+        "num_workers": config["num_workers"],
+        # 1 byte per pixel => 65k*65k = 4GB. for delineated with default parameters S2 data it effectively corresponds to square with 164km side.
+        "raster_resolution": config["raster_resolution"],
+
+        # no reason to touch it if you use delineation result using our code
+        "layer_name": layer_name,
+        # can't be fid; null = generate; if specified column is not unique - simplification will stuck
+        "unique_id_column": "id"
+    }
+
+    simplify.simplify(full_config)
+
+
 
 def execute_delineation(models, planner, postproc_config, passes, dataloader_config, layer_info, lclu_path, lclu_config, full_config):
     gpkg = ogr.Open(layer_info[0], 1)
     out_layer = gpkg.GetLayerByName(layer_info[1])
     srs = out_layer.GetSpatialRef()
+    srs_wkt = srs.ExportToWkt()
 
-    postproc_handler = PostprocHandler(planner.region_size, postproc_config, srs.ExportToWkt(), full_config["filtering_args"])
+    background_loader = BackgroundLoader(full_config["background_info"], lclu_path, lclu_config["range"])
+    full_config["filtering_args"]["middleground_offset"] = background_loader.offset
+    postproc_handler = PostprocHandler(planner.region_size, postproc_config, srs_wkt, full_config["filtering_args"])
+    
 
     global_field_counter = 2
     field_counter_increment = 2
@@ -183,6 +225,10 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
             logger.debug(f"Pass ended in: {end - start_start} s.")
 
             postproc_handler.map()
+
+            background = background_loader.get_background(planner.get_geotransform(), planner.region_size[0], planner.region_size[1], srs_wkt)
+            postproc_handler.apply_background(background)
+
             postproc_handler.polygonize(planner.get_geotransform(), layer_info)
             postproc_handler.clear()
 
@@ -203,6 +249,7 @@ def postdelineation_merge(layer_info, filter_config):
     MIN_AREA = filter_config["minimum_area_m2"]
     MIN_HOLE_AREA = filter_config["minimum_hole_area_m2"]
 
+    max_id = 0
     try:
         layer.StartTransaction()
 
@@ -220,16 +267,20 @@ def postdelineation_merge(layer_info, filter_config):
         for feature in tqdm(layer, desc="Filtering", unit="poly"):
             fid = feature.GetFID()
             id = feature.GetField("id")
-            if id < 0:
+            bg = int(feature.GetField("bg"))
+            if id > 0:
+                feature.SetField("id", fid)
+                layer.SetFeature(feature)
                 continue
 
             orig_geom = feature.GetGeometryRef().Clone()
 
-            if id in field_parts:
-                field_parts[id].append(orig_geom)
+            if (id, bg) in field_parts:
+                field_parts[(id, bg)].append(orig_geom)
             else:
-                field_parts[id] = [orig_geom]
+                field_parts[(id, bg)] = [orig_geom]
 
+            max_id = max(max_id, fid)
             features_to_delete.append(fid)
                 
         # delete useless features
@@ -238,8 +289,9 @@ def postdelineation_merge(layer_info, filter_config):
 
         out_feat = ogr.Feature(layer.GetLayerDefn())
         # merge features and add them to the layer
-        for id in tqdm(field_parts.keys(), desc="Merging", unit="poly"):
-            cleaned_geoms = [g.Buffer(0) for g in field_parts[id] if g and not g.IsEmpty()]
+        for key in tqdm(field_parts.keys(), desc="Merging", unit="poly"):
+            id, bg = key
+            cleaned_geoms = [g.Buffer(0) for g in field_parts[key] if g and not g.IsEmpty()]
             if not cleaned_geoms:
                 logger.debug(f"Skipping id={id}: no valid geometries after cleaning")
                 continue
@@ -270,9 +322,11 @@ def postdelineation_merge(layer_info, filter_config):
 
                 out_feat.SetFID(-1)
                 out_feat.SetGeometry(geom)
-                out_feat.SetField("id", id)
+                out_feat.SetField("id", max_id + 1)
+                out_feat.SetField("bg", bg)
                 out_feat.SetField("area", float(area))
                 layer.CreateFeature(out_feat)
+                max_id += 1
 
         out_feat = None
 
@@ -280,6 +334,8 @@ def postdelineation_merge(layer_info, filter_config):
     except Exception as e:
         layer.RollbackTransaction()
         raise e
+    
+    gpkg.ExecuteSQL("VACUUM")
 
 def warp_lclu(src, dst, sample_tiff, total_bounds, pixel_size, warp_options):
     temp_lclu_tiff_path = None

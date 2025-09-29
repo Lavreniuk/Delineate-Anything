@@ -1,0 +1,24 @@
+src: data/delineated/Sample.gpkg
+dst: data/delineated/Sample.simp.gpkg
+
+# If your initial data was in >5m spatial res, when delineated with default parameters (super_resolution = null) scale will be 2. if <5m -> 1. 
+# If custom args was used look at config's super_resolution value.
+superres_scale: 2
+
+# Final epsilon value is calculated using following formula: 2 * epsilon_scale * superres_scale * sqrt((0.5 * dx)^2 + (0.5 * dy)^2)
+epsilon_scale: 1
+
+# How many processes will be spawn for the task. -1 - all available cpus
+num_workers: -1
+# 1 byte per pixel => 65k*65k = 4GB. for delineated with default parameters S2 data it effectively corresponds to square with 164km side.
+raster_resolution: [8096, 8096]
+
+# No reason to touch it if you use delineation result using our code
+layer_name: fields
+# If you using old delineation results change to null, as earlier 'id' was not unique. 
+# Can't be fid; null = generate; if specified column is not unique - correct results are not guaranteed
+unique_id_column: id
+
+# In case you try to simplify outdated delineation result which don't hold information about spatial resolution of result.
+# This value should be 0.5 * pixel_size / superres_scale
+fallback_vertices_step: [2.5, 2.5]

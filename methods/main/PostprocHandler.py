@@ -103,6 +103,13 @@ class PostprocHandler:
         end_end = time.time()
         logger.debug(f"Mapped in {end_end - start} s; Applied in {end_end - end} s.")
 
+    def apply_background(self, background):
+        if background is None:
+            return
+
+        mask = self.instances_map < 2
+        self.instances_map[mask] = -background[mask]
+
     def polygonize(self, geotransform, layer_info):
         t0 = time.time()
         gpkg_path, layer_name = layer_info
@@ -145,12 +152,13 @@ class PostprocHandler:
                         workers_in_flight -= 1
                         continue
 
-                    wkb, area, geom_id = result
+                    wkb, area, geom_id, isBackground = result
                     geom = ogr.CreateGeometryFromWkb(wkb)
                 
                     feature.SetFID(-1)
                     feature.SetGeometry(geom)
                     feature.SetField("id", geom_id)
+                    feature.SetField("bg", isBackground)
                     feature.SetField("area", float(area))
 
                     out_layer.CreateFeature(feature)

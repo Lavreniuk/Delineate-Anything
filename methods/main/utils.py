@@ -1,11 +1,6 @@
 import os
-import time
-import numpy as np
-import cv2
-from osgeo import gdal, osr, ogr
+from osgeo import osr, ogr
 import logging
-import math
-from math import ceil
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +9,7 @@ __all__ = [
 ]
 
 
-def create_geopackage_with_same_projection(dst_path, layer_name, projection, override_if_exists):
+def create_geopackage_with_same_projection(dst_path, layer_name, projection, override_if_exists, pixel_size):
     if os.path.exists(dst_path):
         if override_if_exists:
             os.remove(dst_path)
@@ -30,7 +25,13 @@ def create_geopackage_with_same_projection(dst_path, layer_name, projection, ove
     if gpkg_ds is None:
         raise RuntimeError(f"ERROR: Could not create GeoPackage: {dst_path}")
 
+    gpkg_ds.SetMetadata({
+        "VERTEX_STEP_X": pixel_size[0],
+        "VERTEX_STEP_Y": pixel_size[1]
+    })
+
     layer = gpkg_ds.CreateLayer(layer_name, srs=spatial_ref, geom_type=ogr.wkbPolygon)
     layer.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
+    layer.CreateField(ogr.FieldDefn("bg", ogr.OFSTBoolean))
     layer.CreateField(ogr.FieldDefn("area", ogr.OFTReal))
     return dst_path, layer_name
