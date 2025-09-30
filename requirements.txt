@@ -6,3 +6,4 @@ shapely==2.1.1
 tornado==6.5.1
 tqdm==4.67.1
 ultralytics==8.3.148
+numba==0.62.1

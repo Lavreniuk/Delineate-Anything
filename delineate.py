@@ -16,7 +16,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logging.raiseExceptions = False
 
+import os
+os.environ['GTIFF_SRS_SOURCE'] = 'EPSG'  # Prefer official EPSG definitions
+
 gdal.UseExceptions()
+gdal.SetConfigOption("GDAL_PAM_ENABLED", "NO")
 
 def delineate(args, verbose):
     # loading model
