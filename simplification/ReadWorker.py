@@ -1,5 +1,6 @@
 import multiprocessing
 from osgeo import ogr
+import traceback
 
 class ReadWorker(multiprocessing.Process):
     MODE_TERMINATE = 0
@@ -41,66 +42,51 @@ class ReadWorker(multiprocessing.Process):
             except:
                 continue
             
-            if command == ReadWorker.MODE_TERMINATE:
-                self.done_flag.set()
-                return
-            elif command == ReadWorker.MODE_READ_ALL:
-                self.read_all_features_intersect_extent(layer, args)
-            elif command == ReadWorker.MODE_READ_NONSIMPLIFIED:
-                self.read_all_features_intersect_extent(layer, args)
+            try:
+                if command == ReadWorker.MODE_TERMINATE:
+                    self.done_flag.set()
+                    return
+                elif command == ReadWorker.MODE_READ_ALL:
+                    self.read_all_features_intersect_extent(layer, args)
+                elif command == ReadWorker.MODE_READ_NONSIMPLIFIED:
+                    self.read_all_features_intersect_extent(layer, args)
+            except:
+                traceback.print_exc()
 
             self.done_flag.set()
 
     def read_all_features_intersect_extent(self, layer, extent):
         self.local_counter = 0
-        extent_geom = ReadWorker.make_extent_geom(extent)
 
-        # spatial filter narrows down candidates first
+        extent_geom = ReadWorker.make_extent_geom(extent)
+        extent_geom.AssignSpatialReference(layer.GetSpatialRef())
+
+        layer_defn = layer.GetLayerDefn()
         layer.SetSpatialFilter(extent_geom)
 
+        # --- Iterate features ---
         for feature in layer:
             fid = feature.GetField(self.fid_column)
             geom = feature.GetGeometryRef()
             if geom is None:
                 continue
 
-            # clip geometry to extent
-            clipped_geom = geom.Intersection(extent_geom)
-            if clipped_geom is None or clipped_geom.IsEmpty():
-                continue
+            if not geom.IsValid():
+                geom = geom.MakeValid() if hasattr(geom, "MakeValid") else geom.Buffer(0)
 
-            defn = feature.GetDefnRef()
+            # Gather attributes
             fields = {}
-            for i in range(defn.GetFieldCount()):
-                name = defn.GetFieldDefn(i).GetName()
+            for i in range(layer_defn.GetFieldCount()):
+                name = layer_defn.GetFieldDefn(i).GetName()
                 fields[name] = feature.GetField(i)
 
-            gtype = clipped_geom.GetGeometryType()
-
-            if gtype == ogr.wkbMultiPolygon or gtype == ogr.wkbMultiPolygon25D:
-                # Split multipolygon into individual polygons
-                for i in range(clipped_geom.GetGeometryCount()):
-                    poly = clipped_geom.GetGeometryRef(i)
-                    if poly is None or poly.IsEmpty():
-                        continue
-
-                    geom_wkb = poly.ExportToWkb()
-
-                    item = (fid, geom_wkb, fields)
-                    self.output_queue.put(item)
-                    self.local_counter += 1
-
-            else:
-                geom_wkb = clipped_geom.ExportToWkb()
-
-                item = (fid, geom_wkb, fields)
-                self.output_queue.put(item)
-                self.local_counter += 1
+            geom_wkb = geom.ExportToWkb()
+            self.output_queue.put((fid, geom_wkb, fields))
+            self.local_counter += 1
 
         layer.SetSpatialFilter(None)
+
         self.counter_value.value = self.local_counter
-
-
 
     @staticmethod
     def make_extent_geom(extent):

@@ -44,7 +44,7 @@ class WriteWorker(multiprocessing.Process):
             
             fid, wkb, fields = command
 
-            if fid == -1:
+            if wkb is None:
                 self.feature_counter.value += 1
                 continue
 

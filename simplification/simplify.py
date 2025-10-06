@@ -14,10 +14,6 @@ from tqdm import tqdm
 
 import time
 
-import os, cv2
-import rasterio
-from rasterio.transform import from_bounds
-
 ogr.UseExceptions()
 
 # --- Step 1: Extend dict with batch fetch ---
@@ -129,7 +125,8 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
     read_worker.start()
 
     simplification_workers = [
-        SimplificationWorker((incidence_matrix.name, region_size), densify_step, epsilon, read_to_simplify_queue, simplify_to_write_queue, set_of_simplified_polygons, multiprocessing.Value('i', 0)) for i in range(num_workers)
+        SimplificationWorker((incidence_matrix.name, region_size), densify_step, epsilon, read_to_simplify_queue, simplify_to_write_queue, 
+                             set_of_simplified_polygons, multiprocessing.Value('i', 0), multiprocessing.Value('i', 0)) for _ in range(num_workers)
     ]
 
     for worker in simplification_workers:
@@ -151,12 +148,13 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         block_extent = [minx, maxx, miny, maxy]
 
         reader_feature_counter.value = 0
-        for worker in simplification_workers:
-            worker.feature_counter.value = 0
         writer_feature_counter.value = 0
+        for worker in simplification_workers:
+            worker.reader_feature_counter.value = 0
+            worker.writer_feature_counter.value = 0
         
         for worker in simplification_workers[:num_worker_to_count]:
-            worker.individual_input_queue.put((SimplificationWorker.MODE_COUNT_VERTICES, [minx, miny]))
+            worker.individual_input_queue.put((SimplificationWorker.MODE_COUNT_VERTICES, ([minx, miny], block_extent)))
             worker.individual_input_queue.join()
 
         reader_done_flag.clear()
@@ -167,31 +165,33 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         while True:
             count = 0
             for worker in simplification_workers:
-                with worker.feature_counter.get_lock():
-                    count += worker.feature_counter.value
+                with worker.reader_feature_counter.get_lock():
+                    count += worker.reader_feature_counter.value
 
             with reader_feature_counter.get_lock():
                 if reader_feature_counter.value == count:
                     break
-
+            
+            # print(count, "of", reader_feature_counter.value)
             time.sleep(0.1)
-
-        reader_feature_counter.value = 0
-        for worker in simplification_workers:
-            worker.feature_counter.value = 0
-        writer_feature_counter.value = 0
 
         # should be synchronous to update shared vertices counts
         for worker in simplification_workers[:num_worker_to_count]:
-            with worker.feature_counter.get_lock():
-                if worker.feature_counter == 0:
+            with worker.reader_feature_counter.get_lock():
+                if worker.reader_feature_counter == 0:
                     continue
 
             worker.individual_input_queue.put((SimplificationWorker.COMMAND_MERGE, None))
             worker.individual_input_queue.join()
 
+        reader_feature_counter.value = 0
+        writer_feature_counter.value = 0
         for worker in simplification_workers:
-            worker.individual_input_queue.put((SimplificationWorker.MODE_SIMPLIFY, [minx, miny]))
+            worker.reader_feature_counter.value = 0
+            worker.writer_feature_counter.value = 0
+
+        for worker in simplification_workers:
+            worker.individual_input_queue.put((SimplificationWorker.MODE_SIMPLIFY, ([minx, miny], block_extent)))
 
         for worker in simplification_workers:
             worker.individual_input_queue.join()
@@ -205,12 +205,11 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         while True:
             count = 0
             for worker in simplification_workers:
-                with worker.feature_counter.get_lock():
-                    count += worker.feature_counter.value
+                with worker.writer_feature_counter.get_lock():
+                    count += worker.writer_feature_counter.value
 
-            with reader_feature_counter.get_lock(), writer_feature_counter.get_lock():
-                # print(writer_feature_counter.value, "of", reader_feature_counter.value)
-                if reader_feature_counter.value == writer_feature_counter.value:
+            with writer_feature_counter.get_lock():
+                if count == writer_feature_counter.value:
                     break
                     
             time.sleep(0.1)
@@ -223,7 +222,7 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
 
         minx += dx
         maxx = minx + width
-        
+
         if minx >= total_extent[1]:
             miny += dy
             maxy = miny + height
@@ -232,8 +231,6 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
 
             if miny >= total_extent[3]:
                 break
-
-
 
     for worker in simplification_workers:
         worker.individual_input_queue.put((SimplificationWorker.MODE_TERMINATE, None))

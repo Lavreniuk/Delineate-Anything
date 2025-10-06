@@ -2,11 +2,11 @@ import multiprocessing
 import cv2
 import numpy as np
 from osgeo import ogr
-from tqdm import tqdm
 
 from multiprocessing.shared_memory import SharedMemory
 from numba import njit, prange
-from math import floor
+
+from .ReadWorker import ReadWorker
 
 import traceback
 
@@ -19,7 +19,7 @@ class SimplificationWorker(multiprocessing.Process):
     MODE_WAIT = 50
     COMMAND_MERGE = 100
 
-    def __init__(self, incidence_matrix_info, step_size, epsilon, input_queue, output_queue, shared_set, feature_counter):
+    def __init__(self, incidence_matrix_info, step_size, epsilon, input_queue, output_queue, shared_set, reader_feature_counter, writer_feature_counter):
         super().__init__(daemon=False)
 
         self.started_event = multiprocessing.Event()
@@ -35,7 +35,10 @@ class SimplificationWorker(multiprocessing.Process):
         self.step_size = step_size
         self.epsilon = epsilon
 
-        self.feature_counter = feature_counter
+        self.reader_feature_counter = reader_feature_counter
+        self.writer_feature_counter = writer_feature_counter
+
+        self.extent_geom = None
 
     def run(self):
         self.started_event.set()
@@ -54,38 +57,83 @@ class SimplificationWorker(multiprocessing.Process):
                     hasContent = False
 
                 if hasContent:
+                    poly_args = []
                     try:
-                        if mode == SimplificationWorker.MODE_COUNT_VERTICES:
-                            self.count_vertices(args)
-                            self.feature_counter.value += 1
-                        elif mode == SimplificationWorker.MODE_SIMPLIFY:
-                            self.simplify(args)
-                            self.feature_counter.value += 1
-
-                        continue
+                        poly_args = self.clip_geometry(args, self.extent_geom)
+                        self.reader_feature_counter.value += 1
                     except:
-                        traceback.print_exc()
-                
+                            traceback.print_exc()
 
+                    for poly in poly_args:
+                        try:
+                            if mode == SimplificationWorker.MODE_COUNT_VERTICES:
+                                self.count_vertices(poly)
+                                
+                            elif mode == SimplificationWorker.MODE_SIMPLIFY:
+                                self.simplify(poly)
+                        except:
+                            traceback.print_exc()
+
+                    continue
+  
             try:
                 command, args = self.individual_input_queue.get_nowait()
-                if command == SimplificationWorker.MODE_TERMINATE:
-                    self.individual_input_queue.task_done()
-                    break
-                elif command == SimplificationWorker.COMMAND_MERGE:
-                    self.merge_dicts()
-                else:
-                    mode = command
-                    self.offset = args
-
+                mode = self.process_individual_command(command, args, mode)
                 self.individual_input_queue.task_done()
             except:
                 pass
             
+            if mode == SimplificationWorker.MODE_TERMINATE:
+                break
+
             if mode == SimplificationWorker.MODE_WAIT:
                 time.sleep(0.25)
 
         self.shm.close()
+
+    def process_individual_command(self, command, args, mode):
+        if command is None:
+            return mode
+
+        if command == SimplificationWorker.MODE_TERMINATE:
+            self.individual_input_queue.task_done()
+        elif command == SimplificationWorker.COMMAND_MERGE:
+            self.merge_dicts()
+            return mode
+        else:
+            if args is None:
+                return mode
+            
+            self.offset, extent = args[0], args[1]
+            self.extent_geom = ReadWorker.make_extent_geom(extent)
+
+        return command
+
+    def clip_geometry(self, args, extent_geom):
+            output = []
+
+            fid, wkb, fields = args
+            geom = ogr.CreateGeometryFromWkb(wkb)
+
+            clipped_geom = extent_geom.Intersection(geom).Buffer(0)
+            if clipped_geom is None or clipped_geom.IsEmpty():
+                return [(fid, None, fields)]
+
+            if not clipped_geom.IsValid():
+                return [(fid, None, fields)]
+
+            def handle_any_geom(geom):
+                if geom.GetGeometryName() == "POLYGON":
+                    output.append((fid, geom, fields))
+                    return
+
+                count = geom.GetGeometryCount()
+                for i in range(count):
+                    sub = geom.GetGeometryRef(i)
+                    handle_any_geom(sub)
+
+            handle_any_geom(clipped_geom)
+            return output
 
     def merge_dicts(self):
         keys = np.array(list(self.local_vertices_dict.keys()), dtype="int64")
@@ -108,9 +156,11 @@ class SimplificationWorker(multiprocessing.Process):
                 arr[k] += vals[i]
 
     def count_vertices(self, args):
-        _, wkb, _ = args
+        _, geom, _ = args
 
-        geom = ogr.CreateGeometryFromWkb(wkb)
+        if geom is None:
+            return
+
         for i in range(geom.GetGeometryCount()):
             ring = geom.GetGeometryRef(i)
             _, keys = SimplificationWorker.densify(ring, self.step_size, self.offset, self.incidence_dims[0], self.incidence_dims[1])
@@ -134,11 +184,15 @@ class SimplificationWorker(multiprocessing.Process):
             if k >= 0 and k < l:
                 out[i] = arr[k]
             else:
-                out[i] = 1
+                out[i] = 0
 
     def simplify(self, args):
-        fid, wkb, fields = args
-        geom = ogr.CreateGeometryFromWkb(wkb)
+        fid, geom, fields = args
+        self.writer_feature_counter.value += 1
+
+        if geom is None:
+            self.output_queue.put((fid, None, None))
+            return
 
         empty = True
         new_polygon = ogr.Geometry(ogr.wkbPolygon)
@@ -157,22 +211,23 @@ class SimplificationWorker(multiprocessing.Process):
             except:
                 traceback.print_exc()
 
-            # i > 0 => hole => clockwise (CW), but we want all to be processed as CCW
-            # if i > 0:
-            #     keys.reverse()
-            #     points.reverse()
-
             prev_is_edge = False
             vertices = []
             fixed = []
+            start_j = 0
+            start_pos = points[0]
+            for j in range(1, count):
+                p = points[j]
+                if p[0] > start_pos[0] or (p[0] == start_pos[0] and p[1] > start_pos[1]):
+                    start_j = j
+                    start_pos = p
 
-            for j in range(count):
+            for j in range(start_j, start_j + count):
                 point = points[j % count]
                 key = keys[j % count]
 
                 # point otside of raster extent - skip it
                 if key < 0:
-                    print("invalid id")
                     prev_is_edge = False
                     continue
                 
@@ -191,6 +246,11 @@ class SimplificationWorker(multiprocessing.Process):
                 elif prev_is_edge and not isEdge:
                     isAnchor = 2
 
+                vertices.append((point[0], point[1]))
+                if isAnchor > 0:
+                    fixed.append(len(vertices) - isAnchor)
+                    continue
+
                 prev_incidence = incidences[(j - 1) % count]
                 current_incidence = incidences[j % count]
                 next_incidence = incidences[(j + 1) % count]
@@ -200,15 +260,11 @@ class SimplificationWorker(multiprocessing.Process):
 
                 prev_is_edge = isEdge
 
-                vertices.append((point[0], point[1]))
                 if isAnchor > 0:
                     fixed.append(len(vertices) - isAnchor)
 
             if len(vertices) > 2:
                 simplified = SimplificationWorker.simplify_with_fixed(vertices, self.epsilon, fixed)
-
-                # if i > 0:
-                #     simplified.reverse()
 
                 if len(simplified) > 2:
                     new_ring = ogr.Geometry(ogr.wkbLinearRing)
@@ -234,31 +290,30 @@ class SimplificationWorker(multiprocessing.Process):
 
     @staticmethod
     def densify(ring, step, offset, dimx, dimy):
-        try:
-            vertices = []
-            keys = []
+        vertices = []
+        keys = []
 
-            initial_vertices_count = ring.GetPointCount()
-            for i in range(initial_vertices_count - 1):
-                i_start = i
-                i_end = (i + 1) % initial_vertices_count
+        initial_vertices_count = ring.GetPointCount()
+        for i in range(initial_vertices_count - 1):
+            i_start = i
+            i_end = (i + 1) % initial_vertices_count
 
-                p_start = np.float64(ring.GetPoint(i_start))
-                p_start = (p_start[0], p_start[1])
-                p_end = np.float64(ring.GetPoint(i_end))
-                p_end = (p_end[0], p_end[1])
+            p_start = np.float64(ring.GetPoint(i_start))
+            p_start = (p_start[0], p_start[1])
+            p_end = np.float64(ring.GetPoint(i_end))
+            p_end = (p_end[0], p_end[1])
 
-                kstart, istart = SimplificationWorker.to_key_and_ipos(p_start, step, offset, dimx, dimy)
-                _, iend = SimplificationWorker.to_key_and_ipos(p_end, step, offset, dimx, dimy)
+            kstart, istart = SimplificationWorker.to_key_and_ipos(p_start, step, offset, dimx, dimy)
+            _, iend = SimplificationWorker.to_key_and_ipos(p_end, step, offset, dimx, dimy)
 
+            delta = (iend[0] - istart[0], iend[1] - istart[1])
+            l = max(abs(delta[0]), abs(delta[1]))
+
+            if l > 1:
                 vertices.append(p_start)
                 keys.append(kstart)
 
-                delta = (iend[0] - istart[0], iend[1] - istart[1])
-                l = max(abs(delta[0]), abs(delta[1]))
-
                 dense_step = (step[0] * np.sign(delta[0]), step[1] * np.sign(delta[1]))
-                
                 pos = p_start
                 for _ in range(l - 1):
                     pos = (pos[0] + dense_step[0], pos[1] + dense_step[1])
@@ -266,16 +321,11 @@ class SimplificationWorker(multiprocessing.Process):
 
                     vertices.append(pos)
                     keys.append(key)
-        except:
-            traceback.print_exc()
 
         return vertices, keys
     
     @staticmethod
     def to_key_and_ipos(point, step, offset, dimx, dimy):
-        # x = int(np.floor((point[0] - offset[0]) / step[0] + 0.5) + 0.5)
-        # y = int(np.floor((point[1] - offset[1]) / step[1] + 0.5) + 0.5)
-
         x = int(np.round((point[0] - offset[0]) / step[0]) + 0.5)
         y = int(np.round((point[1] - offset[1]) / step[1]) + 0.5)
 
@@ -327,10 +377,6 @@ class SimplificationWorker(multiprocessing.Process):
 
             if need_to_reverse:
                 approx = approx[::-1]
-
-            # Avoid duplicate joins
-            # if i > 0:
-            #     approx = approx[1:]
 
             result.extend(approx.tolist())
 
