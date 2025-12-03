@@ -44,7 +44,7 @@ rm ~/miniconda3/miniconda.sh
 source ~/miniconda3/bin/activate
 conda install -c conda-forge gdal
 
-pip install torch==2.6.0
+# optional: pip install torch==2.6.0
 pip install -r requirements.txt
 ```
 
@@ -54,7 +54,7 @@ To set up the environment on a Windows system:
 conda create --prefix=./.conda python=3.11
 conda activate ./.conda
 conda install -c conda-forge gdal
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+# optional: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 ```
 
