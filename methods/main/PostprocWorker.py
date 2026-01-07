@@ -271,16 +271,7 @@ class PostprocWorker:
 
     @staticmethod
     def get_biggest_component_raster(mask):
-        kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype="uint8")
-        buff = mask.astype("uint8")
-
-        if not np.any(buff):
-            return buff
-
-        buff = cv2.morphologyEx(buff, cv2.MORPH_ERODE, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
-
-        if not np.any(buff):
-            return buff
+        buff = mask
 
         contours, _ = cv2.findContours(buff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         contours = [c.squeeze(1) for c in contours]
@@ -290,7 +281,15 @@ class PostprocWorker:
         if len(areas) == 0:
             return buff
 
-        max_contour = contours[np.argmax(areas)]
+        amax = np.argmax(areas)
+        max_contour = contours[amax]
+
+        if not PostprocWorker.is_natural_shape(max_contour, areas[amax], 5):
+            return np.zeros_like(buff).astype("int32")
+
         buff = cv2.fillPoly(buff, [max_contour.astype("int32")], 1, cv2.LINE_4)
-        buff = cv2.morphologyEx(buff, cv2.MORPH_DILATE, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
         return buff
+    
+    @staticmethod
+    def is_natural_shape(contour, area, min_ratio):
+        return True

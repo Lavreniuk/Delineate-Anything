@@ -19,6 +19,7 @@ from osgeo import gdal, osr, ogr
 import shutil
 import math
 import torch
+import torch.nn.functional as F
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -198,7 +199,18 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
                         model_results = []
                         for model_args in pass_args["model_args"]:
                             model = models[model_args["name"]]
-                            prediction = model.predict(images_batch, conf=model_args["minimal_confidence"], half=model_args["use_half"], verbose=False)
+                            prediction = model.predict(images_batch, conf=model_args["minimal_confidence"], half=model_args["use_half"], verbose=False, retina_masks=True)
+
+                            for result in prediction:
+                                if result.masks is None or result.masks.data.shape[0] == 0:
+                                    continue
+                                
+                                with torch.no_grad():
+                                    result.masks.data = -F.max_pool2d(-result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
+                                    result.masks.data = F.max_pool2d(result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
+                                    result.masks.data = F.max_pool2d(result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
+                                    result.masks.data = -F.max_pool2d(-result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
+
                             model_results.append(prediction)
 
                         # push each batch item into queue

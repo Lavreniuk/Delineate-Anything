@@ -265,6 +265,7 @@ class SimplificationWorker(multiprocessing.Process):
 
             if len(vertices) > 2:
                 simplified = SimplificationWorker.simplify_with_fixed(vertices, self.epsilon, fixed)
+                simplified = SimplificationWorker.simplify_with_fixed(simplified, 1e-3 * self.epsilon, [])
 
                 if len(simplified) > 2:
                     new_ring = ogr.Geometry(ogr.wkbLinearRing)

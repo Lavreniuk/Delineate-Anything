@@ -10,6 +10,9 @@ from .IDMapper import IncrementalFastMapper
 from osgeo import ogr
 import logging
 
+import cv2
+from scipy import ndimage
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ class PostprocHandler:
         self.id_mapper = IncrementalFastMapper(10_000_000)
 
         # create queues
-        self.queue = []# multiprocessing.Queue(self.queue_tiles_capacity)
+        self.queue = []
 
         # create shared dictionaries
         self.manager = multiprocessing.Manager()
@@ -99,9 +102,52 @@ class PostprocHandler:
         end = time.time()
 
         self.instances_map[:, :] = npmap[self.instances_map]
+        PostprocHandler.__id_opening(self.instances_map)
 
         end_end = time.time()
         logger.debug(f"Mapped in {end_end - start} s; Applied in {end_end - end} s.")
+
+    @staticmethod
+    def __id_opening(data):
+        chunk_size = 2048
+        halo = 2
+        
+        kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+
+        for i in range(0, data.shape[0], chunk_size):
+            for j in range(0, data.shape[1], chunk_size):
+                i_min, i_max = max(0, i - halo), min(data.shape[0], i + chunk_size + halo)
+                j_min, j_max = max(0, j - halo), min(data.shape[1], j + chunk_size + halo)
+                
+                frag = data[i_min:i_max, j_min:j_max].copy()
+
+                # 1. nullify border region
+                mx = ndimage.maximum_filter(frag, footprint=kernel)
+                mn = ndimage.minimum_filter(frag, footprint=kernel)
+                frag[mx != mn] = 0
+
+                # 2. fill gap
+                mx = ndimage.maximum_filter(frag, footprint=kernel)
+                frag[frag == 0] = mx[frag == 0]
+
+                # 3. fill gap 2
+                mx = ndimage.maximum_filter(frag, footprint=kernel)
+                frag[frag == 0] = mx[frag == 0]
+
+                # 4. remove overgrowth
+                zero_mask = (frag == 0).astype(np.uint8)
+                expanded_zeros = cv2.dilate(zero_mask, kernel.astype(np.uint8), borderType=cv2.BORDER_REPLICATE)
+                frag[expanded_zeros > 0] = 0
+
+                # 2. Determine slice to write back (skip the halo)
+                write_i_start = halo if i > 0 else 0
+                write_j_start = halo if j > 0 else 0
+                
+                actual_w = min(chunk_size, data.shape[0] - i)
+                actual_h = min(chunk_size, data.shape[1] - j)
+
+                data[i:i+actual_w, j:j+actual_h] = frag[write_i_start:write_i_start+actual_w, 
+                                                        write_j_start:write_j_start+actual_h]
 
     def apply_background(self, background):
         if background is None:
