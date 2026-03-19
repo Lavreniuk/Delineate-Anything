@@ -20,6 +20,8 @@ import shutil
 import math
 import torch
 import torch.nn.functional as F
+import psutil
+import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,7 +60,7 @@ def execute(model_paths, config, verbose):
         gdal.BuildVRT(vrt_path, tiffs)
         tiffs = [vrt_path]
 
-    print(tiffs)
+    logger.info(tiffs)
 
     analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"])
     if not analyser.isCompatible():
@@ -70,6 +72,78 @@ def execute(model_paths, config, verbose):
 
     config["data_loader"]["min"] = analyser.min
     config["data_loader"]["max"] = analyser.max
+
+    if config["filtering_args"]["automatic_area_scale"] == True:
+        config["filtering_args"]["minimum_area_m2"] *= analyser.area_coeff
+        config["filtering_args"]["minimum_part_area_m2"] *= analyser.area_coeff
+        config["filtering_args"]["minimum_hole_area_m2"] *= analyser.area_coeff
+
+        logger.info(f"Selected area scale: {analyser.area_coeff}")
+
+    for pas in config["passes"]:
+        if pas["batch_size"] == -1:
+            if device == 'cpu':
+                pas["batch_size"] = 4
+                logger.info(f"Selected batch size: {1}")
+                continue
+
+            current_idx = torch.cuda.current_device()
+            free_bytes, total_bytes = torch.cuda.mem_get_info(current_idx)
+            free_gb = free_bytes / (1024**3)
+            pas["batch_size"] = max(1, int(free_gb))
+            logger.info(f"Selected batch size: {pas['batch_size']}")
+
+    if config["execution_planner"]["region_width"] == -1 or config["execution_planner"]["region_height"] == -1:
+        region_size_full = [
+            # minx, miny, maxx, maxy = self.analyser.total_bounds
+            analyser.scale * int(math.ceil((analyser.total_bounds[2] - analyser.total_bounds[0]) / analyser.pixel_size_x)),
+            analyser.scale * int(math.ceil((analyser.total_bounds[3] - analyser.total_bounds[1]) / abs(analyser.pixel_size_y)))
+        ]
+
+        total_pixels_in_image = region_size_full[0] * region_size_full[1]
+
+        ram = psutil.virtual_memory()
+        available_ram = ram.available
+        region_pixels = available_ram // 24
+        padding_size = 512
+
+        if total_pixels_in_image > region_pixels:
+            perfect_size = int((np.sqrt(region_pixels) // padding_size + 1) * padding_size)
+            perfect_size = min(perfect_size, 24576)
+            w, h = perfect_size
+        else:
+            w = int((region_size_full[0] // padding_size + 1) * padding_size)
+            h = int((region_size_full[1] // padding_size + 1) * padding_size)
+            
+        config["execution_planner"]["region_width"] = w
+        config["execution_planner"]["region_height"] = h
+        logger.info(f"Selected region size: {w}x{h}")
+
+    if config["postprocess_limits"]["num_workers"] == -1:
+        n_cpu = os.cpu_count() or 1
+        n_tasks = max(n_cpu // 2, 1)
+        aspect_ratio = float(config["execution_planner"]["region_width"]) / config["execution_planner"]["region_height"]
+        nx_ideal = math.sqrt(n_tasks * aspect_ratio)
+
+        nx = max(1, round(nx_ideal))
+        ny = max(1, n_tasks // nx)
+
+        if nx <= ny and (nx + 1) * ny < n_tasks:
+            nx += 1
+        
+        if ny <= nx and nx * (ny + 1) < n_tasks:
+            ny += 1
+
+        config["postprocess_limits"]["num_workers"] = [ny, nx]
+        logger.info(f"Selected num workers: {[ny, nx]}")
+
+    if config["simplification_args"]["simplify"] == True and config["simplification_args"]["raster_resolution"] == -1:
+        config["simplification_args"]["raster_resolution"] = [
+            min(config["execution_planner"]["region_height"], 16384),
+            min(config["execution_planner"]["region_width"], 16384)
+        ]
+        logger.info(f"Simplification resolution: {config['simplification_args']['raster_resolution']}")
+
 
     planner = ExecutionPlanner(analyser, config["execution_planner"])
 
@@ -95,7 +169,7 @@ def execute(model_paths, config, verbose):
     time_delineate_start = time.time()
     logger.info("Starting delineation...")
     execute_delineation(models, planner, config["postprocess_limits"], config["passes"], config["data_loader"], 
-                        (gpkg_path, layer_name), lclu_mask_path, config["mask_info"], config)
+                        (gpkg_path, layer_name), lclu_mask_path, config["mask_info"], config, device)
     
     logger.info(f"All regions have been delineated in {time.time() - time_delineate_start:.2f} seconds.")
 
@@ -141,7 +215,7 @@ def execute_simplification(gpkg_path, layer_name, config, scale):
 
 
 
-def execute_delineation(models, planner, postproc_config, passes, dataloader_config, layer_info, lclu_path, lclu_config, full_config):
+def execute_delineation(models, planner, postproc_config, passes, dataloader_config, layer_info, lclu_path, lclu_config, full_config, device):
     gpkg = ogr.Open(layer_info[0], 1)
     out_layer = gpkg.GetLayerByName(layer_info[1])
     srs = out_layer.GetSpatialRef()
@@ -199,8 +273,7 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
                         model_results = []
                         for model_args in pass_args["model_args"]:
                             model = models[model_args["name"]]
-                            prediction = model.predict(images_batch, conf=model_args["minimal_confidence"], half=model_args["use_half"], verbose=False, retina_masks=True)
-
+                            prediction = model.predict(images_batch, conf=model_args["minimal_confidence"], half=model_args["use_half"] if device != 'cpu' else False, verbose=False, retina_masks=True)
                             for result in prediction:
                                 if result.masks is None or result.masks.data.shape[0] == 0:
                                     continue

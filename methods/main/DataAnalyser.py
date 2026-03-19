@@ -8,6 +8,7 @@ class DataAnalyser:
         self.tiffs = tiffs
         self.bands = bands
         self.sr = sr
+        self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
 
     def calcNormalizationBounds(self):
         def calculate_percentiles(data, percentiles=(1, 99)):
@@ -70,7 +71,7 @@ class DataAnalyser:
         if compatible:
             self.total_bounds = self.getTotalBounds()
             if self.sr is None:
-                self.tile_size = 512 if self.get_pixel_size_meters(self.tiffs[0]) < 5 else 256
+                self.tile_size = 512 if self.get_pixel_size_meters(self.tiffs[0]) < 4 else 256
             else:
                 self.tile_size = 512 // self.sr
 
@@ -105,6 +106,11 @@ class DataAnalyser:
         return minx, miny, maxx, maxy
     
     def get_pixel_size_meters(self, tiff_path):
+        width_meters, height_meters, _ = self.evaluate_pixel_size(tiff_path)
+
+        return 0.5 * (width_meters + height_meters)
+    
+    def evaluate_pixel_size(self, tiff_path):
         # Open the dataset
         ds = gdal.Open(tiff_path)
         gt = ds.GetGeoTransform()
@@ -135,8 +141,8 @@ class DataAnalyser:
             width_meters = width_units * lon_m
             height_meters = height_units * lat_m
 
-        return 0.5 * (width_meters + height_meters)
-    
+        return width_meters, height_meters, width_meters * height_meters / 100
+
     def get_pixel_offset(self, ds):
         gt1 = ds.GetGeoTransform()
 

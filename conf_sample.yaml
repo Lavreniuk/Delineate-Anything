@@ -34,23 +34,24 @@ data_loader:
 
 
 execution_planner:
-  region_width: 4096      # Width of processing region (in pixels)
-  region_height: 4096     # Height of processing region (in pixels)
+  region_width: -1      # Width of processing region (in pixels) - -1 for automatic selection
+  region_height: -1     # Height of processing region (in pixels) - -1 for automatic selection
   pixel_offset: [-1, -1]  # Pixel shift of input data relative to output region
 
 postprocess_limits: 
-  num_workers: [2, 2]
-  queue_tiles_capacity: 32
-  max_tiles_inflight: 64
+  # [Ny, Nx] - how many workers to put on each axis. Use just -1 for automatic determination - usually it would took max(N_threads // 2, 1) and distribute it between axes
+  num_workers: -1
+  queue_tiles_capacity: 4
+  max_tiles_inflight: 8
   
 passes:
-  - batch_size: 16            # Number of tiles per batch
+  - batch_size: -1            # Number of tiles per batch. -1 for automatic selection
     tile_size: null           # Not supported, keep null
     tile_step: 0.5            # Tile overlap ratio
     model_args:
       - name: large
         minimal_confidence: 0.005
-        use_half: true        # Use FP16 inference if supported
+        use_half: true        # Use FP16 inference / in case of CPU will be overwritten to false
 
     delineation_config:
       pixel_area_threshold: 512
@@ -72,6 +73,8 @@ polygonization_args:
   override_if_exists: true
 
 filtering_args:
+  # if True - automatically scale minimum_area_m2, minimum_part_area_m2, minimum_hole_area_m2 proportionally to pixel area of the input imagery
+  automatic_area_scale: True
   minimum_area_m2: 2500
   minimum_part_area_m2: 0
   minimum_hole_area_m2: 2500
@@ -93,4 +96,4 @@ simplification_args:
   # how many processes spawn for the task. -1 - all available cpus
   num_workers: -1
   # 1 byte per pixel => 65k*65k = 4GB, 32k*32k = 1GB. Some system cant handle arrays bigger than 32k*32k due to int overflow
-  raster_resolution: [8096, 8096]
+  raster_resolution: -1
