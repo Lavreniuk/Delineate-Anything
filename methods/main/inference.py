@@ -45,8 +45,13 @@ def execute(model_paths, config, verbose):
         config["execution_args"]["mask_filepath"]
     )
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    logger.info("Device:", device)
+    if torch.cuda.is_available():
+        device = 'cuda'
+    elif torch.backends.mps.is_available():
+        device = 'mps'
+    else:
+        device = 'cpu'
+    logger.info("Device: %s", device)
 
     time_start = time.time()  # Initialize time_start for execution time tracking
 
@@ -82,15 +87,16 @@ def execute(model_paths, config, verbose):
 
     for pas in config["passes"]:
         if pas["batch_size"] == -1:
-            if device == 'cpu':
+            if device == 'cuda':
+                current_idx = torch.cuda.current_device()
+                free_bytes, _ = torch.cuda.mem_get_info(current_idx)
+                free_gb = free_bytes / (1024**3)
+                pas["batch_size"] = max(1, int(free_gb))
+            elif device == 'mps':
+                # Apple Silicon — no memory query API; use conservative default
                 pas["batch_size"] = 4
-                logger.info(f"Selected batch size: {1}")
-                continue
-
-            current_idx = torch.cuda.current_device()
-            free_bytes, total_bytes = torch.cuda.mem_get_info(current_idx)
-            free_gb = free_bytes / (1024**3)
-            pas["batch_size"] = max(1, int(free_gb))
+            else:
+                pas["batch_size"] = 4
             logger.info(f"Selected batch size: {pas['batch_size']}")
 
     if config["execution_planner"]["region_width"] == -1 or config["execution_planner"]["region_height"] == -1:
