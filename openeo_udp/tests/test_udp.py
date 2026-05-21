@@ -5,7 +5,7 @@
 
 This script:
   1. Connects to the CDSE openEO backend.
-  2. Builds the process graph (BAP composite → ONNX inference).
+  2. Builds the full process graph (BAP → inference → post-processing).
   3. Submits a batch job over a small AOI.
   4. Waits for completion and downloads the result.
 
@@ -25,6 +25,7 @@ import openeo
 
 from openeo_udp.process_graph.delineate_onnx import (
     build_delineate_onnx,
+    build_delineate_full,
     DEFAULT_JOB_OPTIONS,
 )
 
@@ -41,6 +42,10 @@ AOI = {
     "crs": "EPSG:4326",
 }
 TEMPORAL = ["2024-04-01", "2024-09-30"]
+
+# Set to True to run the full pipeline (inference + post-processing)
+# Set to False to run inference only
+RUN_FULL_PIPELINE = True
 # ----------------------------------------------------------------------------
 
 print(f"Connecting to {BACKEND}...")
@@ -48,15 +53,25 @@ conn = openeo.connect(BACKEND)
 conn.authenticate_oidc()
 
 print("Building process graph...")
-cube = build_delineate_onnx(
-    connection=conn,
-    spatial_extent=AOI,
-    temporal_extent=TEMPORAL,
-)
+if RUN_FULL_PIPELINE:
+    print("  Mode: full pipeline (inference + post-processing)")
+    cube = build_delineate_full(
+        connection=conn,
+        spatial_extent=AOI,
+        temporal_extent=TEMPORAL,
+    )
+else:
+    print("  Mode: inference only")
+    cube = build_delineate_onnx(
+        connection=conn,
+        spatial_extent=AOI,
+        temporal_extent=TEMPORAL,
+    )
 
-print("Submitting batch job...")
+title = "delineate_anything_full_test" if RUN_FULL_PIPELINE else "delineate_anything_onnx_test"
+print(f"Submitting batch job: {title}")
 job = cube.create_job(
-    title="delineate_anything_onnx_test",
+    title=title,
     out_format="GTiff",
     job_options=DEFAULT_JOB_OPTIONS,
 )
@@ -64,7 +79,4 @@ job.start_and_wait()
 
 print(f"Job finished: {job.job_id} (status: {job.status()})")
 
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-results = job.get_results()
-results.download_files(OUT_DIR)
-print(f"Results downloaded to: {OUT_DIR}")
+

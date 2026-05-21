@@ -14,8 +14,9 @@ in this UDF — only raw model outputs are returned.
 Invocation
 ----------
 Call via ``apply_neighborhood`` on chunks of shape (bands=3, y=512, x=512).
-The BAP composite must be RGB (3 bands). Pixel values are expected as
-reflectance (uint16 or float) and will be normalised to [0, 1] range.
+The BAP composite must be RGB (3 bands). Pixel values are expected to be
+pre-scaled to [0, 1] via ``linear_scale_range(0, 3000, 0, 1)`` in the
+process graph.
 
 Dependency archives (job options ``udf-dependency-archives``)::
 
@@ -123,42 +124,20 @@ def _load_session(model_name: str = DEFAULT_MODEL_NAME) -> ort.InferenceSession:
 # ===========================================================================
 
 def _normalize_to_0_1(image: np.ndarray) -> np.ndarray:
-    """Normalise image to [0, 1] float32 using per-band p1/p99 percentile stretch.
+    """Ensure image is in [0, 1] float32.
 
-    Mirrors the Delineate-Anything reference pipeline (DataAnalyser +
-    DataLoaderCached): for each band compute p1/p99 of non-zero pixels,
-    then apply clip((pixel - p1) / (p99 - p1), 0, 1).
+    The process graph applies linear_scale_range(0, 3000, 0, 1) BEFORE
+    calling this UDF, so input should already be in [0, 1].  This function
+    only handles NaN → 0 and clips stray values.
     """
     image = image.astype(np.float32)
 
-    # Replace NaN with 0 so they don't propagate through normalization.
+    # Replace NaN with 0 so they don't propagate through inference.
     nan_count = int(np.isnan(image).sum())
     if nan_count > 0:
         logger.info("Replacing %d NaN pixels with 0 (%.1f%% of total)",
                     nan_count, 100.0 * nan_count / image.size)
         image = np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # Handle all-zero / nodata
-    if image.max() <= 0:
-        return image
-
-    # Per-band percentile normalization (matches DataAnalyser.calcNormalizationBounds)
-    for c in range(image.shape[-1]):
-        band = image[:, :, c]
-        valid = band[band > 0]
-        if len(valid) == 0:
-            continue
-        p1 = np.percentile(valid, 1)
-        p99 = np.percentile(valid, 99)
-        denom = p99 - p1
-        if denom < 1e-6:
-            denom = 1.0
-        image[:, :, c] = (band - p1) / denom
-        logger.info("Band %d normalization: p1=%.2f, p99=%.2f, denom=%.2f, "
-                    "result_min=%.4f, result_max=%.4f, result_mean=%.4f",
-                    c, p1, p99, denom,
-                    float(image[:, :, c].min()), float(image[:, :, c].max()),
-                    float(image[:, :, c].mean()))
 
     return np.clip(image, 0.0, 1.0)
 
@@ -314,7 +293,7 @@ def _run_inference(
 # ===========================================================================
 
 def apply_metadata(metadata: CollectionMetadata, context: dict) -> CollectionMetadata:
-    """Declare the 5-band output schema (RGB composite + model outputs)."""
+    """Declare the 5-band output schema (RGB mosaic + model outputs)."""
     return metadata.rename_labels(
         dimension="bands",
         target=["red", "green", "blue", "detection", "mask"],
@@ -416,7 +395,7 @@ def apply_datacube(cube: xr.DataArray, context: dict) -> xr.DataArray:
                 float(mask_map.min()), float(mask_map.max()),
                 float(mask_map.mean()), 100.0 * (mask_map > 0).sum() / mask_map.size)
 
-    # Stack output: RGB composite (normalised) + detection + mask
+    # Stack output: RGB mosaic (already [0,1]) + detection + mask
     stacked = np.stack([
         image_hwc[:, :, 0],  # red
         image_hwc[:, :, 1],  # green

@@ -70,10 +70,22 @@ DEFAULT_JOB_OPTIONS: dict = {
 CHUNK_INNER_PX = 448
 CHUNK_OVERLAP_PX = 32
 
+# Post-processing operates on a larger extent (multiple inference tiles).
+# 2048px inner + 64px overlap = 2176px chunks → connected components merge
+# fields that span across inference tile boundaries.
+POSTPROC_INNER_PX = 2048
+POSTPROC_OVERLAP_PX = 64
+
 # Detection confidence threshold
 CONFIDENCE_THRESHOLD = 0.005
 
+# Post-processing defaults
+MASK_THRESHOLD = 0.5
+MIN_AREA_PX = 50
+MIN_HOLE_AREA_PX = 25
+
 UDF_PATH = Path(__file__).resolve().parent.parent / "udf" / "delineate_inference.py"
+POSTPROC_UDF_PATH = Path(__file__).resolve().parent.parent / "udf" / "delineate_postprocess.py"
 
 # S2 bands for RGB (true colour: B04, B03, B02)
 S2_RGB_BANDS = ["B04", "B03", "B02"]
@@ -147,16 +159,17 @@ def build_delineate_onnx(
     else:
         composite = _load_bap_composite(connection, spatial_extent, temporal_extent)
 
-    # BAP produces one composite per month. Reduce the temporal dimension
-    # to a single image (median across months) so the model gets one RGB tile.
-    composite = composite.reduce_dimension(dimension="t", reducer="mean")
+    # Normalise S2 BOA reflectance to [0, 1] BEFORE the UDF.
+    # S2 L2A values are typically 0–10000; we use 0–3000 to stretch the
+    # dynamic range for agricultural scenes (most vegetated pixels < 3000).
+    composite_scaled = composite.linear_scale_range(0, 3000, 0, 1)
 
     udf_src_path = Path(udf_path) if udf_path else UDF_PATH
     udf_code = udf_src_path.read_text(encoding="utf-8")
 
     # apply_neighborhood: tile the composite into 512x512 chunks
     # inner=448, overlap=32 each side → UDF receives 512x512
-    detected = composite.apply_neighborhood(
+    detected = composite_scaled.apply_neighborhood(
         process=openeo.UDF(
             udf_code,
             runtime="Python",
@@ -174,3 +187,84 @@ def build_delineate_onnx(
         ],
     )
     return detected
+
+
+def build_delineate_full(
+    connection: openeo.Connection,
+    spatial_extent: dict,
+    temporal_extent: list[str],
+    bap_cube: Optional[openeo.DataCube] = None,
+    udf_path: Optional[str] = None,
+    postproc_udf_path: Optional[str] = None,
+    confidence_threshold: float = CONFIDENCE_THRESHOLD,
+    mask_threshold: float = MASK_THRESHOLD,
+    min_area_px: int = MIN_AREA_PX,
+    min_hole_area_px: int = MIN_HOLE_AREA_PX,
+) -> openeo.DataCube:
+    """Build the full pipeline: BAP → inference → post-processing.
+
+    The post-processing UDF runs on a larger spatial extent (2048×2048 inner)
+    so that connected-component labeling merges fields that span across
+    inference tile boundaries.
+
+    Parameters
+    ----------
+    connection : authenticated openeo.Connection
+    spatial_extent : dict with west/south/east/north[/crs]
+    temporal_extent : [start, end] ISO date strings
+    bap_cube : optional pre-built BAP composite datacube
+    udf_path : override for inference UDF
+    postproc_udf_path : override for post-processing UDF
+    confidence_threshold : YOLO detection confidence threshold
+    mask_threshold : binarization threshold for instance segmentation
+    min_area_px : minimum field area in pixels
+    min_hole_area_px : minimum hole area to keep
+
+    Returns
+    -------
+    openeo.DataCube with 1 output band (instances)
+    """
+    # Step 1: build the composite (same as inference uses)
+    if bap_cube is not None:
+        composite = bap_cube
+    else:
+        composite = _load_bap_composite(connection, spatial_extent, temporal_extent)
+
+    # Scale to [0, 1] for merging into final output
+    composite_scaled = composite.linear_scale_range(0, 3000, 0, 1)
+
+    # Step 2: inference (build_delineate_onnx applies its own linear_scale_range)
+    detected = build_delineate_onnx(
+        connection=connection,
+        spatial_extent=spatial_extent,
+        temporal_extent=temporal_extent,
+        bap_cube=composite,
+        udf_path=udf_path,
+        confidence_threshold=confidence_threshold,
+    )
+
+    # Step 2: post-processing on larger tiles
+    postproc_src = Path(postproc_udf_path) if postproc_udf_path else POSTPROC_UDF_PATH
+    postproc_code = postproc_src.read_text(encoding="utf-8")
+
+    instances = detected.apply_neighborhood(
+        process=openeo.UDF(
+            postproc_code,
+            runtime="Python",
+            context={
+                "mask_threshold": mask_threshold,
+                "min_area_px": min_area_px,
+                "min_hole_area_px": min_hole_area_px,
+            },
+        ),
+        size=[
+            {"dimension": "x", "value": POSTPROC_INNER_PX, "unit": "px"},
+            {"dimension": "y", "value": POSTPROC_INNER_PX, "unit": "px"},
+        ],
+        overlap=[
+            {"dimension": "x", "value": POSTPROC_OVERLAP_PX, "unit": "px"},
+            {"dimension": "y", "value": POSTPROC_OVERLAP_PX, "unit": "px"},
+        ],
+    )
+
+    return instances
