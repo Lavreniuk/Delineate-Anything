@@ -109,13 +109,14 @@ def _load_bap_composite(
     temporal_extent: list[str],
     max_cloud_cover: int = 75,
 ) -> openeo.DataCube:
-    """Load a BAP composite using the APEx bap_composite UDP.
+    """Load a BAP composite, reduce time, and scale to [0, 1].
+
+    Steps:
+      1. Call the APEx bap_composite UDP for RGB bands.
+      2. Reduce the temporal dimension via mean (in case multiple dates remain).
+      3. Scale S2 BOA reflectance from [0, 3000] to [0, 1].
 
     See: https://algorithm-catalogue.apex.esa.int/apps/bap_composite
-
-    The UDP is hosted on openeofed.dataspace.copernicus.eu with process
-    ID ``bap_composite``. It takes a GeoJSON geometry, temporal extent,
-    bands, and max cloud cover.
     """
     geometry = _spatial_extent_to_geojson(spatial_extent)
 
@@ -127,7 +128,29 @@ def _load_bap_composite(
         bands=S2_RGB_BANDS,
         max_cloud_cover=max_cloud_cover,
     )
+
+    # Temporal mean (BAP should already be single-date, but just in case)
+    composite = composite.reduce_dimension(dimension="t", reducer="mean")
+
+    # Scale S2 BOA reflectance to [0, 1]
+    composite = composite.linear_scale_range(0, 3000, 0, 1)
+
     return composite
+
+
+def build_bap_only(
+    connection: openeo.Connection,
+    spatial_extent: dict,
+    temporal_extent: list[str],
+    max_cloud_cover: int = 75,
+) -> openeo.DataCube:
+    """Build just the BAP composite scaled to [0, 1].
+
+    Useful for inspecting / debugging the input to the inference UDF.
+    """
+    return _load_bap_composite(
+        connection, spatial_extent, temporal_extent, max_cloud_cover
+    )
 
 
 def build_delineate_onnx(
@@ -159,17 +182,12 @@ def build_delineate_onnx(
     else:
         composite = _load_bap_composite(connection, spatial_extent, temporal_extent)
 
-    # Normalise S2 BOA reflectance to [0, 1] BEFORE the UDF.
-    # S2 L2A values are typically 0–10000; we use 0–3000 to stretch the
-    # dynamic range for agricultural scenes (most vegetated pixels < 3000).
-    composite_scaled = composite.linear_scale_range(0, 3000, 0, 1)
-
     udf_src_path = Path(udf_path) if udf_path else UDF_PATH
     udf_code = udf_src_path.read_text(encoding="utf-8")
 
     # apply_neighborhood: tile the composite into 512x512 chunks
     # inner=448, overlap=32 each side → UDF receives 512x512
-    detected = composite_scaled.apply_neighborhood(
+    detected = composite.apply_neighborhood(
         process=openeo.UDF(
             udf_code,
             runtime="Python",
@@ -224,16 +242,13 @@ def build_delineate_full(
     -------
     openeo.DataCube with 1 output band (instances)
     """
-    # Step 1: build the composite (same as inference uses)
+    # Step 1: build the composite (already scaled to [0, 1])
     if bap_cube is not None:
         composite = bap_cube
     else:
         composite = _load_bap_composite(connection, spatial_extent, temporal_extent)
 
-    # Scale to [0, 1] for merging into final output
-    composite_scaled = composite.linear_scale_range(0, 3000, 0, 1)
-
-    # Step 2: inference (build_delineate_onnx applies its own linear_scale_range)
+    # Step 2: inference
     detected = build_delineate_onnx(
         connection=connection,
         spatial_extent=spatial_extent,
