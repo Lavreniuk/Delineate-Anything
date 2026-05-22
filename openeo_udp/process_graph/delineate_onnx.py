@@ -67,22 +67,23 @@ DEFAULT_JOB_OPTIONS: dict = {
 
 # The model processes 512x512 tiles. We use inner=448 + overlap=32 on each side
 # so the UDF receives exactly 512x512 (448 + 2*32 = 512).
-CHUNK_INNER_PX = 448
-CHUNK_OVERLAP_PX = 32
+CHUNK_INNER_PX = 256
+CHUNK_OVERLAP_PX = 128
 
 # Post-processing operates on a larger extent (multiple inference tiles).
 # 2048px inner + 64px overlap = 2176px chunks → connected components merge
 # fields that span across inference tile boundaries.
-POSTPROC_INNER_PX = 2048
-POSTPROC_OVERLAP_PX = 64
+POSTPROC_INNER_PX = 2000
+POSTPROC_OVERLAP_PX = 0
 
 # Detection confidence threshold
-CONFIDENCE_THRESHOLD = 0.005
+CONFIDENCE_THRESHOLD = 0.15
 
 # Post-processing defaults
-MASK_THRESHOLD = 0.5
-MIN_AREA_PX = 50
-MIN_HOLE_AREA_PX = 25
+MASK_THRESHOLD = 0.2
+
+MIN_AREA_PX = 10
+MIN_HOLE_AREA_PX = 10
 
 UDF_PATH = Path(__file__).resolve().parent.parent / "udf" / "delineate_inference.py"
 POSTPROC_UDF_PATH = Path(__file__).resolve().parent.parent / "udf" / "delineate_postprocess.py"
@@ -91,23 +92,11 @@ POSTPROC_UDF_PATH = Path(__file__).resolve().parent.parent / "udf" / "delineate_
 S2_RGB_BANDS = ["B04", "B03", "B02"]
 
 
-def _spatial_extent_to_geojson(spatial_extent: dict) -> dict:
-    """Convert a west/south/east/north bbox dict to a GeoJSON Polygon."""
-    w = spatial_extent["west"]
-    s = spatial_extent["south"]
-    e = spatial_extent["east"]
-    n = spatial_extent["north"]
-    return {
-        "type": "Polygon",
-        "coordinates": [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
-    }
-
-
 def _load_bap_composite(
     connection: openeo.Connection,
-    spatial_extent: dict,
-    temporal_extent: list[str],
-    max_cloud_cover: int = 75,
+    spatial_extent,
+    temporal_extent,
+    max_cloud_cover=75,
 ) -> openeo.DataCube:
     """Load a BAP composite, reduce time, and scale to [0, 1].
 
@@ -117,13 +106,15 @@ def _load_bap_composite(
       3. Scale S2 BOA reflectance from [0, 3000] to [0, 1].
 
     See: https://algorithm-catalogue.apex.esa.int/apps/bap_composite
-    """
-    geometry = _spatial_extent_to_geojson(spatial_extent)
 
+    Args:
+        spatial_extent: GeoJSON geometry (Polygon) or openEO Parameter that
+            resolves to one at runtime.
+    """
     composite = connection.datacube_from_process(
         process_id="bap_composite",
         namespace="https://raw.githubusercontent.com/ESA-APEx/apex_algorithms/refs/heads/main/algorithm_catalog/vito/bap_composite/openeo_udp/bap_composite.json",
-        geometry=geometry,
+        geometry=spatial_extent,
         temporal_extent=temporal_extent,
         bands=S2_RGB_BANDS,
         max_cloud_cover=max_cloud_cover,
@@ -140,23 +131,26 @@ def _load_bap_composite(
 
 def build_bap_only(
     connection: openeo.Connection,
-    spatial_extent: dict,
-    temporal_extent: list[str],
+    geometry,
+    temporal_extent,
     max_cloud_cover: int = 75,
 ) -> openeo.DataCube:
     """Build just the BAP composite scaled to [0, 1].
 
     Useful for inspecting / debugging the input to the inference UDF.
+
+    Args:
+        geometry: GeoJSON geometry (Polygon) for the area of interest.
     """
     return _load_bap_composite(
-        connection, spatial_extent, temporal_extent, max_cloud_cover
+        connection, geometry, temporal_extent, max_cloud_cover
     )
 
 
 def build_delineate_onnx(
     connection: openeo.Connection,
-    spatial_extent: dict,
-    temporal_extent: list[str],
+    geometry,
+    temporal_extent=None,
     bap_cube: Optional[openeo.DataCube] = None,
     udf_path: Optional[str] = None,
     confidence_threshold: float = CONFIDENCE_THRESHOLD,
@@ -166,10 +160,10 @@ def build_delineate_onnx(
     Parameters
     ----------
     connection : authenticated openeo.Connection
-    spatial_extent : dict with west/south/east/north[/crs]
+    geometry : GeoJSON geometry (Polygon) for the area of interest
     temporal_extent : [start, end] ISO date strings
-    bap_cube : optional pre-built BAP composite datacube. If None, a simple
-               cloud-masked median composite is built from S2 L2A.
+    bap_cube : optional pre-built BAP composite datacube. If None, one is
+               built from the BAP composite UDP.
     udf_path : optional override path for the UDF source file
     confidence_threshold : YOLO detection confidence threshold
 
@@ -180,7 +174,7 @@ def build_delineate_onnx(
     if bap_cube is not None:
         composite = bap_cube
     else:
-        composite = _load_bap_composite(connection, spatial_extent, temporal_extent)
+        composite = _load_bap_composite(connection, geometry, temporal_extent)
 
     udf_src_path = Path(udf_path) if udf_path else UDF_PATH
     udf_code = udf_src_path.read_text(encoding="utf-8")
@@ -209,8 +203,8 @@ def build_delineate_onnx(
 
 def build_delineate_full(
     connection: openeo.Connection,
-    spatial_extent: dict,
-    temporal_extent: list[str],
+    spatial_extent,
+    temporal_extent,
     bap_cube: Optional[openeo.DataCube] = None,
     udf_path: Optional[str] = None,
     postproc_udf_path: Optional[str] = None,
@@ -218,47 +212,39 @@ def build_delineate_full(
     mask_threshold: float = MASK_THRESHOLD,
     min_area_px: int = MIN_AREA_PX,
     min_hole_area_px: int = MIN_HOLE_AREA_PX,
+    max_cloud_cover: int = 75,
 ) -> openeo.DataCube:
     """Build the full pipeline: BAP → inference → post-processing.
 
-    The post-processing UDF runs on a larger spatial extent (2048×2048 inner)
-    so that connected-component labeling merges fields that span across
-    inference tile boundaries.
+    Args:
+        spatial_extent: GeoJSON geometry (Polygon) or openEO Parameter.
+        temporal_extent: [start, end] ISO date strings or openEO Parameter.
 
-    Parameters
-    ----------
-    connection : authenticated openeo.Connection
-    spatial_extent : dict with west/south/east/north[/crs]
-    temporal_extent : [start, end] ISO date strings
-    bap_cube : optional pre-built BAP composite datacube
-    udf_path : override for inference UDF
-    postproc_udf_path : override for post-processing UDF
-    confidence_threshold : YOLO detection confidence threshold
-    mask_threshold : binarization threshold for instance segmentation
-    min_area_px : minimum field area in pixels
-    min_hole_area_px : minimum hole area to keep
+    Post-processing runs on large tiles (``POSTPROC_INNER_PX``) with
+    ``POSTPROC_OVERLAP_PX`` overlap on each side, so connected-component
+    labeling merges most fields that span tile boundaries.
 
     Returns
     -------
-    openeo.DataCube with 1 output band (instances)
+    openeo.DataCube with 3 output bands (mask_probability, binary_mask, instances)
     """
     # Step 1: build the composite (already scaled to [0, 1])
     if bap_cube is not None:
         composite = bap_cube
     else:
-        composite = _load_bap_composite(connection, spatial_extent, temporal_extent)
+        composite = _load_bap_composite(connection, spatial_extent, temporal_extent, max_cloud_cover)
 
     # Step 2: inference
     detected = build_delineate_onnx(
         connection=connection,
-        spatial_extent=spatial_extent,
+        geometry=spatial_extent,
         temporal_extent=temporal_extent,
         bap_cube=composite,
         udf_path=udf_path,
         confidence_threshold=confidence_threshold,
     )
 
-    # Step 2: post-processing on larger tiles
+    # Step 3: post-processing on large fixed-size tiles
     postproc_src = Path(postproc_udf_path) if postproc_udf_path else POSTPROC_UDF_PATH
     postproc_code = postproc_src.read_text(encoding="utf-8")
 

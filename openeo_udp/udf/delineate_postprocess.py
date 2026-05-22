@@ -134,10 +134,10 @@ def _threshold_and_label(
 # ===========================================================================
 
 def apply_metadata(metadata: CollectionMetadata, context: dict) -> CollectionMetadata:
-    """Declare 4-band output (RGB mosaic + instance labels)."""
+    """Declare 3-band output (mask_probability, binary_mask, instances)."""
     return metadata.rename_labels(
         dimension="bands",
-        target=["red", "green", "blue", "instances"],
+        target=["mask_probability", "binary_mask", "instances"],
     )
 
 
@@ -190,13 +190,11 @@ def apply_datacube(cube: xr.DataArray, context: dict) -> xr.DataArray:
     # Run post-processing
     instances = _threshold_and_label(mask_prob, threshold, min_area_px, min_hole_area_px)
 
-    # Build output: RGB mosaic + instances (4 bands)
-    instances_f32 = instances.astype(np.float32)[np.newaxis, :, :]  # (1, H, W)
-
-    if rgb_bands is not None:
-        result = np.concatenate([rgb_bands, instances_f32], axis=0)  # (4, H, W)
-    else:
-        result = instances_f32  # (1, H, W) fallback
+    # Build output: mask_probability + binary_mask + instances (3 bands)
+    binary_f32 = (mask_prob > threshold).astype(np.float32)[np.newaxis, :, :]  # (1, H, W)
+    instances_f32 = instances.astype(np.float32)[np.newaxis, :, :]             # (1, H, W)
+    mask_prob_out = mask_prob[np.newaxis, :, :]                                 # (1, H, W)
+    result = np.concatenate([mask_prob_out, binary_f32, instances_f32], axis=0) # (3, H, W)
 
     coords = {}
     if y_dim in cube.coords:

@@ -339,7 +339,7 @@ def apply_datacube(cube: xr.DataArray, context: dict) -> xr.DataArray:
     y_dim, x_dim = spatial_dims
 
     # Transpose to (bands, y, x) and get numpy
-    data = cube.transpose(b_dim, y_dim, x_dim).values  # (3, H, W)
+    data = cube.transpose(b_dim, y_dim, x_dim).values.astype(np.float32)  # (3, H, W)
     n_bands, h, w = data.shape
     logger.info("Data shape: (%d bands, %d H, %d W)", n_bands, h, w)
     logger.info("Raw data stats: min=%.4f, max=%.4f, mean=%.4f, nan_count=%d",
