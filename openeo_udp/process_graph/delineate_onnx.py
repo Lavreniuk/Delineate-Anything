@@ -1,3 +1,5 @@
+#%%
+
 """Process graph: Delineate-Anything field boundary detection via ONNX on openEO.
 
 Loads a Best-Available Pixel (BAP) composite (RGB), and runs
@@ -21,8 +23,10 @@ Example
 
     cube = build_delineate_onnx(
         connection=conn,
-        spatial_extent={"west": 5.0, "south": 51.0,
-                        "east": 5.1, "north": 51.1, "crs": "EPSG:4326"},
+        geometry={
+            "type": "Polygon",
+            "coordinates": [[[5.0, 51.0], [5.1, 51.0], [5.1, 51.1], [5.0, 51.1], [5.0, 51.0]]],
+        },
         temporal_extent=["2024-04-01", "2024-09-30"],
     )
     cube.execute_batch(
@@ -65,8 +69,8 @@ DEFAULT_JOB_OPTIONS: dict = {
     "soft-errors": 0.1,
 }
 
-# The model processes 512x512 tiles. We use inner=448 + overlap=32 on each side
-# so the UDF receives exactly 512x512 (448 + 2*32 = 512).
+# The model processes 512x512 tiles. We use inner=256 + overlap=128 on each side
+# so the UDF receives exactly 512x512 (256 + 2*128 = 512).
 CHUNK_INNER_PX = 256
 CHUNK_OVERLAP_PX = 128
 
@@ -94,7 +98,7 @@ S2_RGB_BANDS = ["B04", "B03", "B02"]
 
 def _load_bap_composite(
     connection: openeo.Connection,
-    spatial_extent,
+    geometry,
     temporal_extent,
     max_cloud_cover=75,
 ) -> openeo.DataCube:
@@ -108,13 +112,13 @@ def _load_bap_composite(
     See: https://algorithm-catalogue.apex.esa.int/apps/bap_composite
 
     Args:
-        spatial_extent: GeoJSON geometry (Polygon) or openEO Parameter that
+        geometry: GeoJSON geometry (Polygon) or openEO Parameter that
             resolves to one at runtime.
     """
     composite = connection.datacube_from_process(
         process_id="bap_composite",
         namespace="https://raw.githubusercontent.com/ESA-APEx/apex_algorithms/refs/heads/main/algorithm_catalog/vito/bap_composite/openeo_udp/bap_composite.json",
-        geometry=spatial_extent,
+        geometry=geometry,
         temporal_extent=temporal_extent,
         bands=S2_RGB_BANDS,
         max_cloud_cover=max_cloud_cover,
@@ -154,6 +158,7 @@ def build_delineate_onnx(
     bap_cube: Optional[openeo.DataCube] = None,
     udf_path: Optional[str] = None,
     confidence_threshold: float = CONFIDENCE_THRESHOLD,
+    processing_options=None,
 ) -> openeo.DataCube:
     """Build the Delineate-Anything ONNX inference process graph.
 
@@ -166,6 +171,7 @@ def build_delineate_onnx(
                built from the BAP composite UDP.
     udf_path : optional override path for the UDF source file
     confidence_threshold : YOLO detection confidence threshold
+    processing_options : optional UDF context dict/Parameter with threshold overrides
 
     Returns
     -------
@@ -185,9 +191,11 @@ def build_delineate_onnx(
         process=openeo.UDF(
             udf_code,
             runtime="Python",
-            context={
-                "confidence_threshold": confidence_threshold,
-            },
+            context=(
+                processing_options
+                if processing_options is not None
+                else {"confidence_threshold": confidence_threshold}
+            ),
         ),
         size=[
             {"dimension": "x", "value": CHUNK_INNER_PX, "unit": "px"},
@@ -213,12 +221,14 @@ def build_delineate_full(
     min_area_px: int = MIN_AREA_PX,
     min_hole_area_px: int = MIN_HOLE_AREA_PX,
     max_cloud_cover: int = 75,
+    processing_options=None,
 ) -> openeo.DataCube:
     """Build the full pipeline: BAP → inference → post-processing.
 
     Args:
         spatial_extent: GeoJSON geometry (Polygon) or openEO Parameter.
         temporal_extent: [start, end] ISO date strings or openEO Parameter.
+        processing_options: optional context dict/Parameter passed to both UDFs.
 
     Post-processing runs on large tiles (``POSTPROC_INNER_PX``) with
     ``POSTPROC_OVERLAP_PX`` overlap on each side, so connected-component
@@ -242,6 +252,7 @@ def build_delineate_full(
         bap_cube=composite,
         udf_path=udf_path,
         confidence_threshold=confidence_threshold,
+        processing_options=processing_options,
     )
 
     # Step 3: post-processing on large fixed-size tiles
@@ -252,11 +263,15 @@ def build_delineate_full(
         process=openeo.UDF(
             postproc_code,
             runtime="Python",
-            context={
-                "mask_threshold": mask_threshold,
-                "min_area_px": min_area_px,
-                "min_hole_area_px": min_hole_area_px,
-            },
+            context=(
+                processing_options
+                if processing_options is not None
+                else {
+                    "mask_threshold": mask_threshold,
+                    "min_area_px": min_area_px,
+                    "min_hole_area_px": min_hole_area_px,
+                }
+            ),
         ),
         size=[
             {"dimension": "x", "value": POSTPROC_INNER_PX, "unit": "px"},
@@ -269,3 +284,5 @@ def build_delineate_full(
     )
 
     return instances
+
+# %%

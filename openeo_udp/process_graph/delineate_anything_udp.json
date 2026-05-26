@@ -91,9 +91,7 @@
               "process_id": "run_udf",
               "arguments": {
                 "context": {
-                  "confidence_threshold": {
-                    "from_parameter": "confidence_threshold"
-                  }
+                  "from_parameter": "processing_options"
                 },
                 "data": {
                   "from_parameter": "data"
@@ -143,15 +141,7 @@
               "process_id": "run_udf",
               "arguments": {
                 "context": {
-                  "mask_threshold": {
-                    "from_parameter": "mask_threshold"
-                  },
-                  "min_area_px": {
-                    "from_parameter": "min_area_px"
-                  },
-                  "min_hole_area_px": {
-                    "from_parameter": "min_hole_area_px"
-                  }
+                  "from_parameter": "processing_options"
                 },
                 "data": {
                   "from_parameter": "data"
@@ -179,7 +169,7 @@
       "result": true
     }
   },
-  "id": "esa_delineate_anything",
+  "id": "delineate_anything",
   "summary": "Delineate-Anything field boundary detection (ONNX)",
   "description": "BAP RGB composite \u2192 YOLO-seg ONNX inference \u2192 post-processing. Returns 3 bands: mask_probability (float), binary_mask (0/1), instances (integer field labels).",
   "default_job_options": {
@@ -213,39 +203,17 @@
       }
     },
     {
-      "name": "confidence_threshold",
-      "description": "YOLO detection confidence threshold (0-1). Lower = more detections.",
+      "name": "processing_options",
+      "description": "Optional processing options passed to UDF context. Supported keys: confidence_threshold, mask_threshold, min_area_px, min_hole_area_px.",
       "schema": {
-        "type": "number"
+        "type": "object"
       },
-      "default": 0.15,
-      "optional": true
-    },
-    {
-      "name": "mask_threshold",
-      "description": "Binarisation threshold for mask probability (0-1). Lower = more mask area.",
-      "schema": {
-        "type": "number"
+      "default": {
+        "confidence_threshold": 0.15,
+        "mask_threshold": 0.2,
+        "min_area_px": 10,
+        "min_hole_area_px": 10
       },
-      "default": 0.2,
-      "optional": true
-    },
-    {
-      "name": "min_area_px",
-      "description": "Minimum field area in pixels. Smaller fields are removed.",
-      "schema": {
-        "type": "integer"
-      },
-      "default": 10,
-      "optional": true
-    },
-    {
-      "name": "min_hole_area_px",
-      "description": "Minimum hole area in pixels to preserve. Smaller holes are filled.",
-      "schema": {
-        "type": "integer"
-      },
-      "default": 10,
       "optional": true
     },
     {
