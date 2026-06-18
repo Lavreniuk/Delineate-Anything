@@ -3,6 +3,25 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Large binary / data files
+*.zip
+*.onnx
+*.tif
+*.tiff
+*.nc
+*.nc4
+*.netcdf
+*.gpkg
+*.geotiff
+*.hdf
+*.hdf5
+*.h5
+*.parquet
+*.arrow
+*.pt
+*.pth
+*.pkl
+
 # C extensions
 *.so
 
