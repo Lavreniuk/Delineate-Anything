@@ -12,7 +12,7 @@ ONNX exporter, so this script:
   4. Optionally runs an `onnxruntime` parity check vs. the PyTorch model.
 
 Usage:
-    python export_onnx.py --variant large --output DelineateAnything.onnx --validate
+    python export_onnx.py --variant large_v2 --output DelineateAnything.onnx --validate
 
     # Or from a local .pt file:
     python export_onnx.py --weights ./DelineateAnything.pt --output DelineateAnything.onnx
@@ -51,6 +51,7 @@ HF_REPO_ID = "MykolaL/DelineateAnything"
 VARIANTS = {
     "small": "DelineateAnything-S.pt",
     "large": "DelineateAnything.pt",
+    "large_v2": "DelineateAnythingv2.pt",
 }
 
 
@@ -65,7 +66,7 @@ def _resolve_weights(variant: str | None, weights_arg: str | None) -> Path:
         return p
 
     if variant is None:
-        raise ValueError("Provide either --weights or --variant {small,large}")
+        raise ValueError("Provide either --weights or --variant {small,large,large_v2}")
     if variant not in VARIANTS:
         raise ValueError(f"Unknown variant '{variant}'. Choices: {list(VARIANTS)}")
 

@@ -1,4 +1,4 @@
-model: ["large"] # Model names: "small" or "large". Can be a list.
+model: ["large_v2"] # Model names: "small", "large" or "large_v2". Can be a list.
 method: main # Name of the method subfolder in 'methods'.
 
 execution_args:
@@ -49,8 +49,8 @@ passes:
     tile_size: null           # Not supported, keep null
     tile_step: 0.5            # Tile overlap ratio
     model_args:
-      - name: large
-        minimal_confidence: 0.005
+      - name: large_v2
+        minimal_confidence: 0.25
         use_half: true        # Use FP16 inference / in case of CPU will be overwritten to false
 
     delineation_config:

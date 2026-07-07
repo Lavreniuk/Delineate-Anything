@@ -30,7 +30,7 @@ Output bands (2):
 Context overrides::
 
     {
-        "confidence_threshold": 0.005,  # YOLO detection confidence threshold
+        "confidence_threshold": 0.25,  # YOLO detection confidence threshold
         "model_name": "DelineateAnything.onnx",
     }
 """
@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 NUM_THREADS = 2
 DEFAULT_MODEL_NAME = "DelineateAnything.onnx"
 MODEL_DIR = "DelineateAnything"
-DEFAULT_CONFIDENCE_THRESHOLD = 0.005
+DEFAULT_CONFIDENCE_THRESHOLD = 0.25
 
 # Model input size (must match export --imgsz)
 MODEL_INPUT_SIZE = 512

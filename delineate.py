@@ -32,6 +32,10 @@ def delineate(args, verbose):
         "large": {
             "repo_id": "MykolaL/DelineateAnything",
             "filename": "DelineateAnything.pt"
+        },
+        "large_v2": {
+            "repo_id": "MykolaL/DelineateAnything",
+            "filename": "DelineateAnythingv2.pt"
         }
     }
 
