@@ -36,7 +36,7 @@ data_loader:
 execution_planner:
   region_width: -1      # Width of processing region (in pixels) - -1 for automatic selection
   region_height: -1     # Height of processing region (in pixels) - -1 for automatic selection
-  pixel_offset: [-1, -1]  # Pixel shift of input data relative to output region
+  pixel_offset: [0, 0]  # Pixel shift of input data relative to output region
 
 postprocess_limits: 
   # [Ny, Nx] - how many workers to put on each axis. Use just -1 for automatic determination - usually it would took max(N_threads // 2, 1) and distribute it between axes
