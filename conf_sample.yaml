@@ -50,7 +50,7 @@ passes:
     tile_step: 0.5            # Tile overlap ratio
     model_args:
       - name: large_v2
-        minimal_confidence: 0.25
+        minimal_confidence: 0.15
         use_half: true        # Use FP16 inference / in case of CPU will be overwritten to false
 
     delineation_config:
