@@ -7,7 +7,7 @@ import traceback
 class WriteWorker(multiprocessing.Process):
     MODE_TERMINATE = 0
 
-    def __init__(self, dst_gpkg, dst_layer, input_queue, total, feature_counter):
+    def __init__(self, dst_gpkg, dst_layer, input_queue, total):
         super().__init__(daemon=False)
 
         self.dst_qpkg = dst_gpkg
@@ -17,8 +17,6 @@ class WriteWorker(multiprocessing.Process):
 
         self.writted_ids = set()
         self.started_event = multiprocessing.Event()
-
-        self.feature_counter = feature_counter
 
     def run(self):
         self.started_event.set()
@@ -45,7 +43,6 @@ class WriteWorker(multiprocessing.Process):
             fid, wkb, fields = command
 
             if wkb is None:
-                self.feature_counter.value += 1
                 continue
 
             try:
@@ -64,7 +61,6 @@ class WriteWorker(multiprocessing.Process):
                 layer.CreateFeature(feature)
                 feature = None
                 self.writted_ids.add(fid)
-                self.feature_counter.value += 1
                 counter += 1
                 inc = len(self.writted_ids) - pbar.n
                 pbar.update(inc)

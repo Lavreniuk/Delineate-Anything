@@ -1,3 +1,16 @@
+import os
+
+# --- CRITICAL HPC NODE OPTIMIZATION ---
+# Forces underlying native libraries to run on a single thread per worker process.
+# This prevents thread nesting explosion (num_workers * library_cores) which causes CPU thrashing and deadlocks.
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["BLIS_NUM_THREADS"] = "1"
+os.environ["OPENCV_NUM_THREADS"] = "1"
+
 from osgeo import ogr, osr
 import multiprocessing
 
@@ -89,6 +102,8 @@ def simplify(config):
 
 
 def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densify_step, epsilon, region_size, num_workers, fid_column):
+    multiprocessing.set_start_method('spawn', force=True)
+    
     clone_layer_schema(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, epsilon)
     
     dx = (region_size[0] - 1) * densify_step[0]
@@ -105,38 +120,24 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
     maxx = minx + width
     maxy = miny + height
 
-    num_worker_to_count = num_workers
-
-    read_to_simplify_queue = multiprocessing.Queue(32768)
-    simplify_to_write_queue = multiprocessing.Queue(32768)
+    simplify_to_write_queue = multiprocessing.Queue()
 
     manager = MyManager()
     manager.start()
 
-    incidence_matrix = SharedMemory(create=True, size=region_size[0]*region_size[1])
-    incidence_np = np.ndarray((region_size[0], region_size[1]), dtype="uint8", buffer=incidence_matrix.buf)
+    incidence_matrix = SharedMemory(create=True, size=4*region_size[0]*region_size[1])
+    incidence_np = np.ndarray((region_size[0], 4 * region_size[1]), dtype="uint8", buffer=incidence_matrix.buf)
     
-    set_of_simplified_polygons = manager.MyDict()
-
-    reader_feature_counter = multiprocessing.Value('i', 0)
-    reader_start_flag = multiprocessing.Event()
-    reader_done_flag = multiprocessing.Event()
-    read_worker = ReadWorker(src_gpkg, src_layer_name, fid_column, read_to_simplify_queue, set_of_simplified_polygons, reader_start_flag, reader_done_flag, reader_feature_counter)
-    read_worker.start()
-
     simplification_workers = [
-        SimplificationWorker((incidence_matrix.name, region_size), densify_step, epsilon, read_to_simplify_queue, simplify_to_write_queue, 
-                             set_of_simplified_polygons, multiprocessing.Value('i', 0), multiprocessing.Value('i', 0)) for _ in range(num_workers)
+        SimplificationWorker((incidence_matrix.name, region_size), densify_step, epsilon, simplify_to_write_queue) for _ in range(num_workers)
     ]
 
     for worker in simplification_workers:
         worker.start()
 
-    writer_feature_counter = multiprocessing.Value('i', 0)
-    write_worker = WriteWorker(dst_gpkg, dst_layer_name, simplify_to_write_queue, total_features, writer_feature_counter)
+    write_worker = WriteWorker(dst_gpkg, dst_layer_name, simplify_to_write_queue, total_features)
     write_worker.start()
 
-    read_worker.started_event.wait()
     write_worker.started_event.wait()
 
     for worker in simplification_workers:
@@ -146,48 +147,13 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         incidence_np[:, :] = 0
         block_extent = [minx, maxx, miny, maxy]
 
-        reader_feature_counter.value = 0
-        writer_feature_counter.value = 0
         for worker in simplification_workers:
-            worker.reader_feature_counter.value = 0
-            worker.writer_feature_counter.value = 0
-        
-        for worker in simplification_workers[:num_worker_to_count]:
             worker.individual_input_queue.put((SimplificationWorker.MODE_COUNT_VERTICES, ([minx, miny], block_extent)))
-            worker.individual_input_queue.join()
 
-        reader_done_flag.clear()
-        read_worker.input_queue.put((ReadWorker.MODE_READ_ALL, block_extent))
-        reader_start_flag.set()
-        reader_done_flag.wait()
-
-        while True:
-            count = 0
-            for worker in simplification_workers:
-                with worker.reader_feature_counter.get_lock():
-                    count += worker.reader_feature_counter.value
-
-            with reader_feature_counter.get_lock():
-                if reader_feature_counter.value == count:
-                    break
-            
-            # print(count, "of", reader_feature_counter.value)
-            time.sleep(0.1)
-
-        # should be synchronous to update shared vertices counts
-        for worker in simplification_workers[:num_worker_to_count]:
-            with worker.reader_feature_counter.get_lock():
-                if worker.reader_feature_counter == 0:
-                    continue
-
-            worker.individual_input_queue.put((SimplificationWorker.COMMAND_MERGE, None))
-            worker.individual_input_queue.join()
-
-        reader_feature_counter.value = 0
-        writer_feature_counter.value = 0
         for worker in simplification_workers:
-            worker.reader_feature_counter.value = 0
-            worker.writer_feature_counter.value = 0
+            worker.individual_input_queue.join()
+
+        ReadWorker.read_all_features_intersect_extent(fid_column, layer, block_extent, [worker.individual_input_queue for worker in simplification_workers])
 
         for worker in simplification_workers:
             worker.individual_input_queue.put((SimplificationWorker.MODE_SIMPLIFY, ([minx, miny], block_extent)))
@@ -195,23 +161,7 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         for worker in simplification_workers:
             worker.individual_input_queue.join()
 
-        reader_done_flag.clear()
-        # to make sure what polygons what touching original extent is pass WITHIN test
-        read_worker.input_queue.put((ReadWorker.MODE_READ_NONSIMPLIFIED, block_extent))
-        reader_start_flag.set()
-        reader_done_flag.wait()
-
-        while True:
-            count = 0
-            for worker in simplification_workers:
-                with worker.writer_feature_counter.get_lock():
-                    count += worker.writer_feature_counter.value
-
-            with writer_feature_counter.get_lock():
-                if count == writer_feature_counter.value:
-                    break
-                    
-            time.sleep(0.1)
+        ReadWorker.read_all_features_intersect_extent(fid_column, layer, block_extent, [worker.individual_input_queue for worker in simplification_workers])
 
         for worker in simplification_workers:
             worker.individual_input_queue.put((SimplificationWorker.MODE_WAIT, None))
@@ -233,17 +183,16 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
 
     for worker in simplification_workers:
         worker.individual_input_queue.put((SimplificationWorker.MODE_TERMINATE, None))
+
+    for worker in simplification_workers:
+        worker.join()
     
     write_worker.input_queue.put(WriteWorker.MODE_TERMINATE)
     write_worker.join()
 
-    for worker in simplification_workers:
-        worker.join()
-
     incidence_matrix.close()
     incidence_matrix.unlink()
 
-    read_worker.terminate()
     write_worker.terminate()
     for worker in simplification_workers:
         worker.terminate()

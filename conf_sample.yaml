@@ -15,7 +15,7 @@ super_resolution: null
 treat_as_vrt: false
 
 mask_info:
-  range: 24               # Number of classes in the mask, or null if it includes negative values
+  range: 40               # Number of classes in the mask, or null if it includes negative values
   filter_classes: [1, 10, 11, 12, 23]  # Classes used to remove whole polygons on overlap
   clip_classes: [0, 13, 14]        # Classes used to clip overlapping polygon areas
 
@@ -29,8 +29,8 @@ data_loader:
   bands: [3, 2, 1]        # Bands to use from the image (GDAL index, 1-based). For RGB use [3,2,1]
   nodata_band: null       # Optional nodata band (GDAL index)
   nodata_value: [0, 0, 0] # Pixel value considered as nodata. Use [0, 0, 0] for black or null for none
-  min: null               # Min value for normalization (overridden automatically)
-  max: null               # Max value for normalization (overridden automatically)
+  min: null               # Min value for normalization. null - for automatic estimation, [R, G, B] - for manual assignment
+  max: null               # Max value for normalization. null - for automatic estimation, [R, G, B] - for manual assignment
 
 
 execution_planner:

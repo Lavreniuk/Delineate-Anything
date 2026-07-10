@@ -27,6 +27,25 @@ class DataLoaderCached:
         self.pos = self.plan["infile_begin"].copy()
         self.offset = self.plan["infile_begin"].copy()
 
+    def get_progress(self):
+        infile_begin = self.plan["infile_begin"]
+        infile_end = self.plan["infile_end"]
+        
+        total_cols = infile_end[0] - infile_begin[0]
+        total_rows = infile_end[1] - infile_begin[1]
+        
+        total_chunks = total_cols * total_rows
+        
+        if total_chunks == 0:
+            return 1.0
+            
+        current_col_rel = self.pos[0] - infile_begin[0]
+        current_row_rel = self.pos[1] - infile_begin[1]
+        
+        chunks_processed = (current_row_rel * total_cols) + current_col_rel
+        
+        return np.clip(float(chunks_processed) / total_chunks, 0, 1)
+
     def is_compatible(self, plan):
         if self.skip:
             return True

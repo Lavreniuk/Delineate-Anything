@@ -4,17 +4,23 @@ import math
 from tqdm import tqdm
 
 class DataAnalyser:
-    def __init__(self, tiffs, bands, sr):
+    def __init__(self, tiffs, bands, sr, norm_min, norm_max):
         self.tiffs = tiffs
         self.bands = bands
         self.sr = sr
         self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
+        self.min = norm_min
+        self.max = norm_max
 
     def calcNormalizationBounds(self):
         def calculate_percentiles(data, percentiles=(1, 99)):
             return np.percentile(data[~np.isnan(data)], percentiles)
 
         BANDS = self.bands
+
+        if not self.min is None and not self.max is None:
+            return
+        
         self.min = [[] for _ in BANDS]
         self.max = [[] for _ in BANDS]
 

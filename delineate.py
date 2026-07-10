@@ -151,8 +151,12 @@ def batch_routine(args):
         })
         logger.info(f"{folder} is queued for delineation.")
 
+    results = []
     for setup in setups:
         delineate(setup, args.verbose)
+        results.append(setup["output"])
+
+    return results
 
 def main():
     parser = ArgumentParser()

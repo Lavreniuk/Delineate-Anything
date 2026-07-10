@@ -67,7 +67,7 @@ def execute(model_paths, config, verbose):
 
     logger.info(tiffs)
 
-    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"])
+    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"], config["data_loader"]["min"], config["data_loader"]["max"])
     if not analyser.isCompatible():
         logger.error(f"Incompatible tiff files. Ensure the same projection and pixel size fo each file in the folder.")
         return
@@ -116,7 +116,8 @@ def execute(model_paths, config, verbose):
         if total_pixels_in_image > region_pixels:
             perfect_size = int((np.sqrt(region_pixels) // padding_size + 1) * padding_size)
             perfect_size = min(perfect_size, 24576)
-            w, h = perfect_size
+            w = perfect_size
+            h = perfect_size
         else:
             w = int((region_size_full[0] // padding_size + 1) * padding_size)
             h = int((region_size_full[1] // padding_size + 1) * padding_size)
@@ -230,7 +231,6 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
     background_loader = BackgroundLoader(full_config["background_info"], lclu_path, lclu_config["range"])
     full_config["filtering_args"]["middleground_offset"] = background_loader.offset
     postproc_handler = PostprocHandler(planner.region_size, postproc_config, srs_wkt, full_config["filtering_args"])
-    
 
     global_field_counter = 2
     field_counter_increment = 2
@@ -241,7 +241,8 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
     total_dataloader_time = 0
     dataloader = None
     num_regions = planner.get_num_regions()
-    with tqdm(total=num_regions, desc="Delineating", unit="region") as pbar_delineate:
+    custom_format = "{l_bar}{bar}| {n:.2f}/{total_fmt} [{elapsed}<{remaining}]"
+    with tqdm(total=num_regions, desc="Delineating", unit="region", bar_format=custom_format) as pbar_delineate:
         pbar_delineate.n = region_counter
         pbar_delineate.refresh()
 
@@ -257,6 +258,7 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
                 tileStep = pass_args["tile_step"]
                 batchSize = pass_args["batch_size"]
 
+                plan_entry_id = 0
                 plan = planner.get_plan(tileSize, tileStep)
                 for entry in plan:
                     start = time.time()
@@ -285,7 +287,7 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
                                     continue
                                 
                                 with torch.no_grad():
-                                    result.masks.data = -F.max_pool2d(-result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
+                                    result.masks.data = -F.max_pool2d(-result.masks.data.float(), kernel_size=(3, 3), stride=1, padding=(1, 1))
                                     result.masks.data = F.max_pool2d(result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
                                     result.masks.data = F.max_pool2d(result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
                                     result.masks.data = -F.max_pool2d(-result.masks.data, kernel_size=(3, 3), stride=1, padding=(1, 1))
@@ -310,7 +312,11 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
                             args = ([results[i].cpu() for results in model_results], nodata_batch[i], bounds_batch[i], id_counter)
                             postproc_handler.put(args)
 
+                        pbar_delineate.n = np.clip(region_counter + np.clip(float(dataloader.get_progress() + plan_entry_id) / len(plan), 0, 1), 0, num_regions)
+                        pbar_delineate.refresh()
+
                     postproc_handler.sync()
+                    plan_entry_id += 1
 
             end = time.time()
             logger.debug(f"Pass ended in: {end - start_start} s.")

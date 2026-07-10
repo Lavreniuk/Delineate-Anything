@@ -4,39 +4,31 @@ import numpy as np
 from osgeo import ogr
 
 from multiprocessing.shared_memory import SharedMemory
-from numba import njit, prange
+from numba import njit
 
 from .ReadWorker import ReadWorker
 
 import traceback
-
 import time
 
 class SimplificationWorker(multiprocessing.Process):
-    MODE_TERMINATE = 0
-    MODE_COUNT_VERTICES = 1
-    MODE_SIMPLIFY = 2
-    MODE_WAIT = 50
-    COMMAND_MERGE = 100
+    MODE_TERMINATE = -1
+    MODE_COUNT_VERTICES = -2
+    MODE_SIMPLIFY = -3
+    MODE_WAIT = -4
 
-    def __init__(self, incidence_matrix_info, step_size, epsilon, input_queue, output_queue, shared_set, reader_feature_counter, writer_feature_counter):
+    def __init__(self, incidence_matrix_info, step_size, epsilon, output_queue):
         super().__init__(daemon=False)
 
         self.started_event = multiprocessing.Event()
 
-        self.input_queue = input_queue
         self.individual_input_queue = multiprocessing.JoinableQueue()
         self.output_queue = output_queue
-        self.local_vertices_dict = {}
-        self.shared_set = shared_set
         self.incidence_shm_name = incidence_matrix_info[0]
-        self.incidence_dims = incidence_matrix_info[1]
+        self.incidence_dims = incidence_matrix_info[1] # Expected: (dimx, dimy)
 
         self.step_size = step_size
         self.epsilon = epsilon
-
-        self.reader_feature_counter = reader_feature_counter
-        self.writer_feature_counter = writer_feature_counter
 
         self.extent_geom = None
 
@@ -44,116 +36,96 @@ class SimplificationWorker(multiprocessing.Process):
         self.started_event.set()
 
         self.shm = SharedMemory(name=self.incidence_shm_name, create=False)
-        self.incidence_np = np.ndarray((self.incidence_dims[0] * self.incidence_dims[1]), buffer=self.shm.buf, dtype="uint8")
+        # Allocate 1D array representing flat memory layout of (dimx * dimy * 4 directions)
+        self.incidence_np = np.ndarray((self.incidence_dims[0] * self.incidence_dims[1] * 4), buffer=self.shm.buf, dtype="uint8")
 
         mode = SimplificationWorker.MODE_WAIT
         while True:
-            if mode != SimplificationWorker.MODE_WAIT:
-                hasContent = False
-                try:
-                    args = self.input_queue.get(timeout=0.1)
-                    hasContent = True
-                except:
-                    hasContent = False
-
-                if hasContent:
-                    poly_args = []
-                    try:
-                        poly_args = self.clip_geometry(args, self.extent_geom)
-                        self.reader_feature_counter.value += 1
-                    except:
-                            traceback.print_exc()
-
-                    for poly in poly_args:
-                        try:
-                            if mode == SimplificationWorker.MODE_COUNT_VERTICES:
-                                self.count_vertices(poly)
-                                
-                            elif mode == SimplificationWorker.MODE_SIMPLIFY:
-                                self.simplify(poly)
-                        except:
-                            traceback.print_exc()
-
-                    continue
-  
             try:
-                command, args = self.individual_input_queue.get_nowait()
-                mode = self.process_individual_command(command, args, mode)
-                self.individual_input_queue.task_done()
+                args = self.individual_input_queue.get(timeout=0.1)
             except:
-                pass
-            
-            if mode == SimplificationWorker.MODE_TERMINATE:
+                continue
+
+            if args[0] == SimplificationWorker.MODE_TERMINATE:
+                self.individual_input_queue.task_done()
                 break
 
-            if mode == SimplificationWorker.MODE_WAIT:
-                time.sleep(0.25)
+            if args[0] == SimplificationWorker.MODE_WAIT:
+                mode = SimplificationWorker.MODE_WAIT
+                self.individual_input_queue.task_done()
+            elif args[0] == SimplificationWorker.MODE_COUNT_VERTICES:
+                mode = SimplificationWorker.MODE_COUNT_VERTICES
+                self.offset, extent = args[1][0], args[1][1]
+                self.extent_geom = ReadWorker.make_extent_geom(extent)
+                self.individual_input_queue.task_done()
+            elif args[0] == SimplificationWorker.MODE_SIMPLIFY:
+                mode = SimplificationWorker.MODE_SIMPLIFY
+                self.offset, extent = args[1][0], args[1][1]
+                self.extent_geom = ReadWorker.make_extent_geom(extent)
+                self.individual_input_queue.task_done()
+            else:
+                if mode == SimplificationWorker.MODE_WAIT:
+                    time.sleep(0.1)
+                    continue
+
+                poly_args = []
+                try:
+                    poly_args = self.clip_geometry(args, self.extent_geom)
+                except:
+                    traceback.print_exc()
+
+                for poly in poly_args:
+                    try:
+                        if mode == SimplificationWorker.MODE_COUNT_VERTICES:
+                            self.count_vertices(poly)
+                        elif mode == SimplificationWorker.MODE_SIMPLIFY:
+                            self.simplify(poly)
+                    except:
+                        traceback.print_exc()
+
+                self.individual_input_queue.task_done()
 
         self.shm.close()
 
-    def process_individual_command(self, command, args, mode):
-        if command is None:
-            return mode
-
-        if command == SimplificationWorker.MODE_TERMINATE:
-            self.individual_input_queue.task_done()
-        elif command == SimplificationWorker.COMMAND_MERGE:
-            self.merge_dicts()
-            return mode
-        else:
-            if args is None:
-                return mode
-            
-            self.offset, extent = args[0], args[1]
-            self.extent_geom = ReadWorker.make_extent_geom(extent)
-
-        return command
-
     def clip_geometry(self, args, extent_geom):
-            output = []
+        output = []
 
-            fid, wkb, fields = args
-            geom = ogr.CreateGeometryFromWkb(wkb)
+        fid, wkb, fields = args
+        geom = ogr.CreateGeometryFromWkb(wkb)
 
-            clipped_geom = extent_geom.Intersection(geom).Buffer(0)
-            if clipped_geom is None or clipped_geom.IsEmpty():
-                return [(fid, None, fields)]
+        clipped_geom = extent_geom.Intersection(geom).Buffer(0)
+        if clipped_geom is None or clipped_geom.IsEmpty():
+            return [(fid, None, fields)]
 
-            if not clipped_geom.IsValid():
-                return [(fid, None, fields)]
+        if not clipped_geom.IsValid():
+            return [(fid, None, fields)]
 
-            def handle_any_geom(geom):
-                if geom.GetGeometryName() == "POLYGON":
-                    output.append((fid, geom, fields))
-                    return
+        def handle_any_geom(geom):
+            if geom.GetGeometryName() == "POLYGON":
+                output.append((fid, geom, fields))
+                return
 
-                count = geom.GetGeometryCount()
-                for i in range(count):
-                    sub = geom.GetGeometryRef(i)
-                    handle_any_geom(sub)
+            count = geom.GetGeometryCount()
+            for i in range(count):
+                sub = geom.GetGeometryRef(i)
+                handle_any_geom(sub)
 
-            handle_any_geom(clipped_geom)
-            return output
-
-    def merge_dicts(self):
-        keys = np.array(list(self.local_vertices_dict.keys()), dtype="int64")
-        values = np.array(list(self.local_vertices_dict.values()), dtype="uint8")
-
-        try:
-            SimplificationWorker.apply_updates(self.incidence_np, keys, values, self.incidence_np.shape[0])
-        except:
-            traceback.print_exc()
-
-        self.local_vertices_dict.clear()
+        handle_any_geom(clipped_geom)
+        return output
 
     @staticmethod
-    @njit(parallel=True)
-    def apply_updates(arr, keys, vals, l):
+    @njit(nogil=True)
+    def apply_direct_updates(arr, keys, channels, l):
+        """Writes simultaneously to the 1D flat array mapping spatial index and channel offset."""
         n = keys.shape[0]
-        for i in prange(n):
+        for i in range(n):
             k = keys[i]
-            if k >= 0 and k < l:
-                arr[k] += vals[i]
+            c = channels[i]
+            if k >= 0:
+                flat_k = k * 4 + c
+                if 0 <= flat_k < l:
+                    # theretically only once vertex can be approached from this direction -> we need to flag pixel noot increase it
+                    arr[flat_k] = 1
 
     def count_vertices(self, args):
         _, geom, _ = args
@@ -161,34 +133,54 @@ class SimplificationWorker(multiprocessing.Process):
         if geom is None:
             return
 
-        for i in range(geom.GetGeometryCount()):
-            ring = geom.GetGeometryRef(i)
-            _, keys = SimplificationWorker.densify(ring, self.step_size, self.offset, self.incidence_dims[0], self.incidence_dims[1])
+        # Explicitly force OGC standard orientation: Outer = CCW, Holes = CW
+        oriented_geom = ogr.ForceToPolygon(geom)
+        # if oriented_geom is None:
+        #     oriented_geom = geom # Fallback if forcing fails
 
-            for j in range(len(keys)):
-                key = keys[j]
-                if key < 0:
-                    continue
+        for i in range(oriented_geom.GetGeometryCount()):
+            ring = oriented_geom.GetGeometryRef(i)
+            
+            if ring.GetPointCount() < 3:
+                continue
 
-                if key in self.local_vertices_dict:
-                    self.local_vertices_dict[key] += 1
-                else:
-                    self.local_vertices_dict[key] = 1
+            _, keys, channels = SimplificationWorker.densify(
+                ring, self.step_size, self.offset, self.incidence_dims[0], self.incidence_dims[1]
+            )
+
+            if len(keys) == 0:
+                continue
+
+            keys_np = np.array(keys, dtype="int64")
+            channels_np = np.array(channels, dtype="uint8")
+
+            try:
+                SimplificationWorker.apply_direct_updates(
+                    self.incidence_np, keys_np, channels_np, self.incidence_np.shape[0]
+                )
+            except:
+                traceback.print_exc()
 
     @staticmethod
-    @njit(parallel=True)
+    @njit(nogil=True)
     def gather_incidence(arr, keys, out, l):
+        """Sums up all 4 directional channels for each spatial key index to return total count."""
         n = keys.shape[0]
-        for i in prange(n):
+        for i in range(n):
             k = keys[i]
-            if k >= 0 and k < l:
-                out[i] = arr[k]
+            if k >= 0 and (k * 4 + 3) < l:
+                base_idx = k * 4
+                out[i] = (
+                    arr[base_idx] + 
+                    arr[base_idx + 1] + 
+                    arr[base_idx + 2] + 
+                    arr[base_idx + 3]
+                )
             else:
                 out[i] = 0
 
     def simplify(self, args):
         fid, geom, fields = args
-        self.writer_feature_counter.value += 1
 
         if geom is None:
             self.output_queue.put((fid, None, None))
@@ -199,7 +191,8 @@ class SimplificationWorker(multiprocessing.Process):
 
         for i in range(geom.GetGeometryCount()):
             ring = geom.GetGeometryRef(i)
-            points, keys = SimplificationWorker.densify(ring, self.step_size, self.offset, self.incidence_dims[0], self.incidence_dims[1])
+            # Uses original, raw topologies safely since gather_incidence combines the channel vectors
+            points, keys, _ = SimplificationWorker.densify(ring, self.step_size, self.offset, self.incidence_dims[0], self.incidence_dims[1])
             count = len(points)
 
             if len(points) < 3:
@@ -226,23 +219,17 @@ class SimplificationWorker(multiprocessing.Process):
                 point = points[j % count]
                 key = keys[j % count]
 
-                # point otside of raster extent - skip it
                 if key < 0:
                     prev_is_edge = False
                     continue
                 
                 isAnchor = 0
-
                 isEdge = False
-                # on top, right, left, or bottom edge
                 if key < self.incidence_dims[0] or (key + 1) % self.incidence_dims[0] == 0 or key % self.incidence_dims[0] == 0 or key >= (self.incidence_dims[1] - 1) * self.incidence_dims[0]:
                     isEdge = True 
                 
-                # first time touching edge
                 if not prev_is_edge and isEdge:
                     isAnchor = 1
-                    
-                # we exited edge, so we must put anchor on previous position
                 elif prev_is_edge and not isEdge:
                     isAnchor = 2
 
@@ -288,14 +275,17 @@ class SimplificationWorker(multiprocessing.Process):
         else:
             self.output_queue.put((-1, None, None))
 
-
     @staticmethod
     def densify(ring, step, offset, dimx, dimy):
+        """Traces the ring path and categorizes every vertex into 1 of 4 directional tracks."""
         vertices = []
         keys = []
+        channels = []
 
         initial_vertices_count = ring.GetPointCount()
-        for i in range(initial_vertices_count - 1):
+        # was initial_vertices_count - 1, but in case we dont have duplication of last vertex we will use initial_vertices_count, 
+        # if duplication is present it will be just skipped by "if l == 0:"
+        for i in range(initial_vertices_count):
             i_start = i
             i_end = (i + 1) % initial_vertices_count
 
@@ -310,9 +300,21 @@ class SimplificationWorker(multiprocessing.Process):
             delta = (iend[0] - istart[0], iend[1] - istart[1])
             l = max(abs(delta[0]), abs(delta[1]))
 
+            # it should not happen, but lets be safe
+            if l == 0:
+                continue
+
+            # Determine dominant direction vector of the current line segment
+            # 0: East (+X), 1: South (+Y), 2: West (-X), 3: North (-Y)
+            if abs(delta[0]) >= abs(delta[1]):
+                channel = 0 if delta[0] >= 0 else 2
+            else:
+                channel = 1 if delta[1] >= 0 else 3
+
             if l > 1:
                 vertices.append(p_start)
                 keys.append(kstart)
+                channels.append(channel)
 
                 dense_step = (step[0] * np.sign(delta[0]), step[1] * np.sign(delta[1]))
                 pos = p_start
@@ -322,8 +324,9 @@ class SimplificationWorker(multiprocessing.Process):
 
                     vertices.append(pos)
                     keys.append(key)
+                    channels.append(channel)
 
-        return vertices, keys
+        return vertices, keys, channels
     
     @staticmethod
     def to_key_and_ipos(point, step, offset, dimx, dimy):
@@ -345,34 +348,30 @@ class SimplificationWorker(multiprocessing.Process):
         fixed_indices = sorted(set(fixed_indices))
         result = []
 
-        # number of segments to process:
         n = len(fixed_indices) if closed else len(fixed_indices) - 1
 
         for i in range(n):
             start = fixed_indices[i]
-            end = fixed_indices[(i + 1) % len(fixed_indices)]  # wrap for last→first
+            end = fixed_indices[(i + 1) % len(fixed_indices)]
 
             if start == end:
                 continue
 
             if start < end:
                 segment = points[start:end + 1]
-            else:  # wrap-around case
+            else:
                 segment = points[start:] + points[:end + 1]
 
             p_start = segment[0]
             p_end = segment[-1]
 
-            # top-left comparison: smaller y first, then smaller x
             need_to_reverse = (p_end[1] < p_start[1]) or (p_end[1] == p_start[1] and p_end[0] < p_start[0])
             if need_to_reverse:
                 segment = segment[::-1]
 
-            # Convert to OpenCV-compatible array
             arr = np.array(segment, dtype=np.float32).reshape(-1, 1, 2)
             approx = cv2.approxPolyDP(arr, epsilon, False).reshape(-1, 2)
 
-            # Force fixed endpoints
             approx[0] = segment[0]
             approx[-1] = segment[-1]
 
