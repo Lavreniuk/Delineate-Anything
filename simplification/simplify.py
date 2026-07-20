@@ -67,7 +67,7 @@ def simplify(config):
 
     superres_scale = config["superres_scale"]
     epsilon_scale = config["epsilon_scale"]
-    epsilon = 2 * epsilon_scale * superres_scale * math.sqrt(vertex_step_x**2 + vertex_step_y**2)
+    epsilon = 3 * epsilon_scale * superres_scale
 
     region_size = config["raster_resolution"]
 
