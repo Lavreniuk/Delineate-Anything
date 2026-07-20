@@ -255,6 +255,9 @@ class SimplificationWorker(multiprocessing.Process):
                 simplified = SimplificationWorker.simplify_with_fixed(simplified, 1e-3 * self.epsilon, [])
 
                 if len(simplified) > 2:
+                    # convert from pixel-space to crs space
+                    simplified = [(self.offset[0] + self.step_size[0] * p[0], self.offset[1] + self.step_size[1] * p[1]) for p in simplified]
+
                     new_ring = ogr.Geometry(ogr.wkbLinearRing)
                     for x, y in simplified:
                         new_ring.AddPoint_2D(x, y)
@@ -290,12 +293,10 @@ class SimplificationWorker(multiprocessing.Process):
             i_end = (i + 1) % initial_vertices_count
 
             p_start = np.float64(ring.GetPoint(i_start))
-            p_start = (p_start[0], p_start[1])
             p_end = np.float64(ring.GetPoint(i_end))
-            p_end = (p_end[0], p_end[1])
 
-            kstart, istart = SimplificationWorker.to_key_and_ipos(p_start, step, offset, dimx, dimy)
-            _, iend = SimplificationWorker.to_key_and_ipos(p_end, step, offset, dimx, dimy)
+            kstart, istart = SimplificationWorker.to_key_and_ipos((p_start[0], p_start[1]), step, offset, dimx, dimy)
+            _, iend = SimplificationWorker.to_key_and_ipos((p_end[0], p_end[1]), step, offset, dimx, dimy)
 
             delta = (iend[0] - istart[0], iend[1] - istart[1])
             l = max(abs(delta[0]), abs(delta[1]))
@@ -311,20 +312,19 @@ class SimplificationWorker(multiprocessing.Process):
             else:
                 channel = 1 if delta[1] >= 0 else 3
 
-            if l > 1:
-                vertices.append(p_start)
-                keys.append(kstart)
+            vertices.append(istart)
+            keys.append(kstart)
+            channels.append(channel)
+            
+            dense_step = (np.sign(delta[0]), np.sign(delta[1]))
+            pos = istart
+            for _ in range(l - 1):
+                 # we no longer need to call to_key_and_ipos, as we are working with pixel space coordinates
+                pos = (pos[0] + dense_step[0], pos[1] + dense_step[1])
+
+                vertices.append(pos)
+                keys.append(np.int64(dimx * pos[1] + pos[0]))
                 channels.append(channel)
-
-                dense_step = (step[0] * np.sign(delta[0]), step[1] * np.sign(delta[1]))
-                pos = p_start
-                for _ in range(l - 1):
-                    pos = (pos[0] + dense_step[0], pos[1] + dense_step[1])
-                    key, _ = SimplificationWorker.to_key_and_ipos(pos, step, offset, dimx, dimy)
-
-                    vertices.append(pos)
-                    keys.append(key)
-                    channels.append(channel)
 
         return vertices, keys, channels
     
