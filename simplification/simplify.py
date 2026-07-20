@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 import os
 
 # --- CRITICAL HPC NODE OPTIMIZATION ---

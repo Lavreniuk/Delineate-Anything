@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 #from osgeo import gdal
 import cv2
 import numpy as np

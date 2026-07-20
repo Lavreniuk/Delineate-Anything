@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 import os
 import concurrent.futures
 from tqdm import tqdm

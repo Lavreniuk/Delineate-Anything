@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 from osgeo import gdal, osr
 import numpy as np
 import math
