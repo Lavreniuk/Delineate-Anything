@@ -354,6 +354,8 @@ def postdelineation_merge(layer_info, filter_config):
         src_srs = layer.GetSpatialRef()
         dst_src = osr.SpatialReference()
         dst_src.ImportFromEPSG(6933)
+        src_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dst_src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 
         transform = osr.CoordinateTransformation(src_srs, dst_src)
 
