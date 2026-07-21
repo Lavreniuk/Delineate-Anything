@@ -36,6 +36,8 @@ class PolygonizationWorker:
         
         equal_area_srs = osr.SpatialReference()
         equal_area_srs.ImportFromEPSG(6933)
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        equal_area_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         coord_transform = osr.CoordinateTransformation(srs, equal_area_srs)
 
         height, width = array.shape
