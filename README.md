@@ -2,6 +2,7 @@
 <a href='https://lavreniuk.github.io/Delineate-Anything/'><img src='https://img.shields.io/badge/Project-Page-Green'></a>
 <a href='https://arxiv.org/abs/2504.02534'><img src='https://img.shields.io/badge/Paper-DelAny-red'></a>
 <a href='https://arxiv.org/abs/2511.13417'><img src='https://img.shields.io/badge/Paper-DelAnyFlow-red'></a>
+<a href='https://arxiv.org/abs/2607.19069'><img src='https://img.shields.io/badge/Paper-DelAny v2-red'></a>
 <a href='https://delineate-anything.projects.earthengine.app/view/ua2024fields'><img src='https://img.shields.io/badge/Map-UA_Fields_2024-blue'></a>
 <a href='https://huggingface.co/datasets/MykolaL/FBIS-22M'><img src='https://img.shields.io/badge/Dataset-HuggingFace-DA0000'></a>
 <a href='https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing'><img src='https://img.shields.io/badge/Colab-Demo-F9AB00'></a>
@@ -18,7 +19,8 @@ by [Mykola Lavreniuk](https://scholar.google.com/citations?hl=en&user=-oFR-RYAAA
 ![intro](figs/intro.jpg)
 
 ## News
-- `2025/11/17`: New paper published **Delineate Anything Flow: Fast, Country-Level Field Boundary Detection from Any Source** [arXiv:2511.13417](https://arxiv.org/abs/2511.13417).
+- `2026/07/16`: 🔥 **[Delineate Anything v2: A Global Foundation Model for Field Delineation](https://arxiv.org/abs/2607.19069)** is accepted to **ECCV 2026**!
+- `2025/11/17`: **[Delineate Anything Flow: Fast, Country-Level Field Boundary Detection from Any Source](https://arxiv.org/abs/2511.13417)** published!
 - `2025/09/07`: 🚀🚀🚀 [Autobounds](https://autobounds.com/) released for convenient **field boundary detection** with Delineate-Anything, directly in the browser!  
    👉 [Demo Video](http://bit.ly/4ngrM9k) | [Live App](https://autobounds.com/ai-models).
 - `2025/08/30`: 🚀🚀 Our paper on Delineate-Anything accepted at **ECAI 2025** 🎉.
