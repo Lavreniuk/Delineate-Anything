@@ -16,8 +16,9 @@ by [Mykola Lavreniuk](https://scholar.google.com/citations?hl=en&user=-oFR-RYAAA
 
 **Delineate Anything v2** extends Delineate Anything model into a globally representative, resolution-agnostic foundation model that scales agricultural field boundary detection to a planetary level from any imagery source. Trained on **FBIS-73M**, a massive 73-million-instance dataset spanning 61 countries with diverse imagery sources ranging from 0.25m to 10m resolution, built through a resolution-specific curation pipeline that solves the parcel-versus-field mismatch, Delineate Anything v2 sets a new state-of-the-art in global zero-shot delineation. It delivers a +103.3% relative gain in mAP@0.5 over Delineate Anything while maintaining extreme efficiency, mapping all of Ukraine ($603,000 \text{ km}^2$) in 5.4 hours on a regular PC with 1 GPU NVIDIA RTX 5070 Ti 16 GB.
 
-![intro](figs/intro.jpg)
-![intro](figs/intro_v2.jpg)
+![intro v1](figs/intro.jpg)
+<br><br><br>
+![intro v2](figs/intro_v2.jpg)
 
 
 ## News
