@@ -2,22 +2,21 @@
 <html lang="en">
 <head>
 	<script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
-	<script src="https://cdn.rawgit.com/zurb/twentytwenty/599bc2df/js/jquery.event.move.js"></script>
-	<script src="https://cdn.rawgit.com/zurb/twentytwenty/599bc2df/js/jquery.twentytwenty.js"></script>
-	<link rel="stylesheet" href="https://cdn.rawgit.com/zurb/twentytwenty/599bc2df/css/twentytwenty.css" type="text/css" media="screen" />
+	<script src="https://cdn.jsdelivr.net/gh/zurb/twentytwenty@599bc2df/js/jquery.event.move.js"></script>
+	<script src="https://cdn.jsdelivr.net/gh/zurb/twentytwenty@599bc2df/js/jquery.twentytwenty.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/zurb/twentytwenty@599bc2df/css/twentytwenty.css" type="text/css" media="screen" />
 	
 	<meta name="google-site-verification" content="6lbYN1vX7A4sD8SrVniq84UEKyEUSBgxeP7d3FjuuK0" />
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-	<link rel="stylesheet"
-		href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
-    <title>Delineate Anything</title>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.4/css/bulma.min.css">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+	<link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+    <title>Delineate Anything v2</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Noto Sans', sans-serif;
             margin: 20px;
             text-align: center; /* Center align the content */
         }
@@ -32,7 +31,8 @@
         p {
             color: #555;
             max-width: 900px;
-            font-size: 18px;
+            font-size: 16px;
+            line-height: 1.5;
             margin: auto;
             text-align: justify;
             margin-bottom: 1em;
@@ -43,7 +43,7 @@
             margin-bottom: 20px;
         }
 		.caption {
-            font-size: 14px;
+            font-size: 16px;
             margin-top: 10px;
 			max-width: 900px;
 			margin: auto;
@@ -54,7 +54,8 @@
 			color: #555;
             list-style-type: decimal;
             max-width: 900px;
-            font-size: 18px;
+            font-size: 16px;
+            line-height: 1.5;
             margin: auto;
             text-align: justify;
             margin-bottom: 1em;
@@ -71,6 +72,77 @@
             padding: 10px;
         }
 
+		.data-table {
+			border-collapse: collapse;
+			text-align: center;
+			font-size: 15px;
+			color: #333;
+		}
+
+		.data-table th, .data-table td {
+			padding: 8px 14px;
+			border-bottom: 1px solid #ddd;
+		}
+
+		.data-table th {
+			font-weight: bold;
+			color: #555;
+			border-bottom: 2px solid #999;
+		}
+
+		.compact-table {
+			font-size: 16px;
+		}
+
+		.compact-table th, .compact-table td {
+			padding: 2px 10px;
+		}
+
+		.compact-table td:first-child {
+			text-align: left;
+		}
+
+		.compact-table .cite {
+			color: #999;
+			font-size: 0.9em;
+		}
+
+		.compact-table .group-row td {
+			text-align: left;
+			font-weight: bold;
+			color: #333;
+			background: #f2f2f2;
+			border-bottom: 1px solid #ccc;
+			padding-top: 6px;
+			padding-bottom: 6px;
+		}
+
+		.compact-table .highlight-row td {
+			font-weight: bold;
+			background: #fafafa;
+			border-top: 2px solid #999;
+		}
+
+		h2 {
+			font-weight: 700;
+			font-size: 1.5rem;
+			color: #333;
+			max-width: 900px;
+			margin: 1.6em auto 0.6em;
+		}
+
+		pre {
+			background: #f5f5f5;
+			border-radius: 6px;
+			padding: 16px 20px;
+			max-width: 900px;
+			margin: 0 auto 1em;
+			text-align: left;
+			overflow-x: auto;
+			font-size: 14px;
+			line-height: 1.5;
+		}
+
         .childContainer {
             max-width: 320px;
             max-height: 320px;
@@ -84,88 +156,116 @@
             width: 100%;
             height: auto;
         }
+
+        .twentytwenty-before-label:before, .twentytwenty-after-label:before {
+            font-weight: bold;
+            font-size: 14px;
+        }
+		.venue {
+			font-size: 28px;
+			font-weight: bold;
+			color: #555;
+			max-width: 900px;
+			margin: 0 auto 1.2em;
+		}
+		.pub-title {
+			font-family: 'Google Sans', sans-serif;
+			font-size: 2rem;
+		}
+		.pub-authors {
+			font-family: 'Google Sans', sans-serif;
+			font-size: 1.25rem;
+		}
+		.pub-authors a {
+			color: hsl(204, 86%, 53%);
+		}
+		.pub-authors a:hover {
+			text-decoration: underline;
+		}
+		.link-block {
+			margin: 0 4px;
+		}
     </style>
 </head>
 <body>
-    <h1><strong>Delineate Anything:</strong> Resolution-Agnostic Field Boundary Delineation on Satellite Imagery</h1>
-	<p style="text-align:center; margin-bottom: 10px;">
+    <h1 class="pub-title"><strong>Delineate Anything v2:</strong> A Global Foundation Model for Field Delineation</h1>
+	<p class="pub-authors" style="text-align:center; margin-bottom: 10px;">
 		<span><a href="https://scholar.google.com/citations?hl=en&user=-oFR-RYAAAAJ">Mykola Lavreniuk</a><sup>1, 2</sup>, </span>
 		<span><a href="https://scholar.google.com/citations?user=e3TWBuwAAAAJ&hl=en">Nataliia Kussul</a><sup>3</sup>, </span>
 		<span><a href="https://scholar.google.com/citations?user=tqoQKZAAAAAJ&hl=en">Andrii Shelestov</a><sup>2, 4</sup>, </span>
-		<span><a href="https://scholar.google.com/citations?user=XaN-oukAAAAJ&hl=en">Bohdan Yailymov</a><sup>2</sup>, </span> <br>
-		<span><a href="https://scholar.google.com/citations?user=4jgAsBIAAAAJ&hl=en">Yevhenii Salii</a><sup>2, 4</sup>, </span> 
+		<span><a href="https://scholar.google.com/citations?user=4jgAsBIAAAAJ&hl=en">Yevhenii Salii</a><sup>2, 4</sup>, </span> <br>
 		<span><a href="https://www.researchgate.net/profile/Volodymyr-Kuzin">Volodymyr Kuzin</a><sup>2, 4</sup>, </span>
+		<span><a href="https://orcid.org/0009-0007-0270-3470">Charlotte Julia Li-Xing Wang</a><sup>1</sup>, </span>
 		<span><a href="https://scholar.google.com/citations?user=P_pyhi8AAAAJ&hl=en">Zoltan Szantoi</a><sup>1</sup> </span>
     </p>
 
-	<div style="text-align:center; margin-bottom: 20px; color: #555;">
+	<div class="pub-authors" style="text-align:center; margin-bottom: 20px; color: #555;">
 		<span><sup>1 </sup>European Space Agency</span>,
 		<span><sup>2 </sup>SRI NASU-SSAU</span>,
-		<span><sup>3 </sup>University of Maryland</span>, 
+		<span><sup>3 </sup>University of Maryland</span>,
 		<span><sup>4 </sup>Igor Sikorsky Kyiv Polytechnic Institute</span>
 	</div>
-	
-	<div style="text-align:center; margin-bottom: 30px;">
-		<a href="https://arxiv.org/abs/2504.02534" style="text-decoration: none;">
-			<button style="background-color: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin-right: 10px; cursor: pointer; border-radius: 5px; width: 130px; height: 40px">
-				<span class="icon">
-					<i class="ai ai-arxiv"></i>
-				</span>
-				Paper 1
-			</button>
-		</a>
-		<a href="https://arxiv.org/abs/2511.13417" style="text-decoration: none;">
-			<button style="background-color: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin-right: 10px; cursor: pointer; border-radius: 5px; width: 130px; height: 40px">
-				<span class="icon">
-					<i class="ai ai-arxiv"></i>
-				</span>
-				Paper 2
-			</button>
-		</a>
-		<a href="https://github.com/Lavreniuk/Delineate-Anything" style="text-decoration: none;">
-			<button style="background-color: #008CBA; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin-right: 10px; cursor: pointer; border-radius: 5px; width: 130px; height: 40px">
-				<i class="fa fa-github" style="font-size:18px;"></i>
-				Code
-			</button>
-		</a>
-		<a href="https://delineate-anything.projects.earthengine.app/view/ua2024fields" style="text-decoration: none;">
-			<button style="background-color: #6a1b9a; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin-right: 10px; cursor: pointer; border-radius: 5px; width: 130px; height: 40px">
-				<i class="fa fa-map"></i>
-				Map
-			</button>
-		</a>
-		<a href="https://huggingface.co/datasets/MykolaL/FBIS-22M" style="text-decoration: none;">
-			<button style="background-color: #DA0000; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin-right: 10px; cursor: pointer; border-radius: 5px; width: 130px; height: 40px">
-				<i class="fa fa-database"></i>
-				Dataset
-			</button>
-		</a>
-		<a href="https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing" style="text-decoration: none;">
-			<button style="background-color: #F9AB00; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; cursor: pointer; border-radius: 5px; width: 130px; height: 40px">
-				<i class="fa fa-google"></i>
-				Colab
-			</button>
-		</a>
+
+	<h1 class="venue">ECCV 2026</h1>
+
+	<div class="publication-links" style="text-align:center; margin-bottom: 30px;">
+		<span class="link-block">
+			<a href="https://arxiv.org/abs/2504.02534" class="button is-normal is-rounded is-dark">
+				<span class="icon"><i class="fa-solid fa-file-pdf"></i></span>
+				<span>DelAny</span>
+			</a>
+		</span>
+		<span class="link-block">
+			<a href="https://arxiv.org/abs/2511.13417" class="button is-normal is-rounded is-dark">
+				<span class="icon"><i class="fa-solid fa-file-pdf"></i></span>
+				<span>DelAnyFlow</span>
+			</a>
+		</span>
+		<span class="link-block">
+			<a href="https://arxiv.org/abs/2607.19069" class="button is-normal is-rounded is-dark">
+				<span class="icon"><i class="fa-solid fa-file-pdf"></i></span>
+				<span>DelAny v2</span>
+			</a>
+		</span>
+		<span class="link-block">
+			<a href="https://github.com/Lavreniuk/Delineate-Anything" class="button is-normal is-rounded is-dark">
+				<span class="icon"><i class="fa-brands fa-github"></i></span>
+				<span>Code</span>
+			</a>
+		</span>
+		<span class="link-block">
+			<a href="https://explorer.delineate-anything.apex.esa.int/" class="button is-normal is-rounded is-dark">
+				<span class="icon"><i class="fa-solid fa-map" style="color: #b993ea;"></i></span>
+				<span>Explorer</span>
+			</a>
+		</span>
+		<span class="link-block">
+			<a href="https://huggingface.co/datasets/MykolaL/FBIS-22M" class="button is-normal is-rounded is-dark">
+				<span class="icon">🤗</span>
+				<span>Dataset</span>
+			</a>
+		</span>
+		<span class="link-block">
+			<a href="https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing" class="button is-normal is-rounded is-dark">
+				<span class="icon"><i class="fa-brands fa-google" style="color: #F9AB00;"></i></span>
+				<span>Colab</span>
+			</a>
+		</span>
 	</div>
 
 
-	<div style="text-align:center; margin-bottom: 0px;">
-		<img src="images/logo.jpg" alt="intro" width="448" />
-	</div>
-
-	
 	<table class="slider-table">
 		<tr>
 			<td>
 				<div id="container1" class="childContainer" style="margin-right:0">
-					<img src="./images/1.jpg" alt="Input" />
-					<img src="./images/1_res.jpg" alt="Field boundaries" />
+					<img src="./images/1.png" alt="RGB" />
+					<img src="./images/1_res.png" alt="Predicted Fields" />
 				</div>
 			</td>
 			<td>
 				<div id="container2" class="childContainer" style="margin-left:0">
-					<img src="./images/2.jpg" alt="Input" />
-					<img src="./images/2_res.jpg" alt="Field boundaries" />
+					<img src="./images/2.png" alt="RGB" />
+					<img src="./images/2_res.png" alt="Predicted Fields" />
 				</div>
 			</td>
 		</tr>
@@ -174,15 +274,15 @@
 	<script>
 	$(function(){
 	  $("#container1").twentytwenty({
-		  before_label: 'Input',
-		  after_label: 'Field boundaries',
+		  before_label: 'RGB',
+		  after_label: 'Predicted Fields',
 		  default_offset_pct: 0.7,
 		});
 	});
 	$(function(){
 	  $("#container2").twentytwenty({
-		  before_label: 'Input',
-		  after_label: 'Field boundaries',
+		  before_label: 'RGB',
+		  after_label: 'Predicted Fields',
 		  default_offset_pct: 0.3,
 		});
 	});
@@ -190,41 +290,130 @@
 
 
 	<img src="./images/fig2.jpg" style="width: 900px; height: auto;" />
-	<div class="caption">Figure 1. <strong>Workflow of the Delineate Anything model</strong> for field instance segmentation and field boundary extraction from arbitrary resolution satellite imagery, trained on our large-scale Field Boundary Instance Segmentation dataset (FBIS-22M), containing 22M field boundaries.</div>
-	<div id="method"> 
+	<div class="caption">Figure 1a. <strong>Workflow of Delineate Anything.</strong> Field instance segmentation and field boundary extraction from arbitrary resolution satellite imagery, trained on the Field Boundary Instance Segmentation dataset (FBIS-22M), containing 22M field boundaries.</div>
+	<img src="./images/intro_v2.jpg" style="width: 900px; height: auto; margin-top: 30px;" />
+	<div class="caption">Figure 1b. <strong>Workflow of Delineate Anything v2.</strong> A resolution-specific data curation pipeline homogenizes merged administrative parcels and strengthens weak physical boundaries across 61 countries, producing FBIS-73M and a single globally-scalable, resolution-agnostic foundation model for field delineation.</div>
+	<div id="method">
 		<h2>Abstract</h2>
-		<p>The accurate delineation of agricultural field boundaries from satellite imagery is vital for land management and crop monitoring. However, current methods face challenges due to limited dataset sizes, resolution discrepancies, and diverse environmental conditions. We address this by reformulating the task as instance segmentation and introducing the Field Boundary Instance Segmentation - 22M dataset (<strong>FBIS-22M</strong>), a large-scale, multi-resolution dataset comprising 672,909 high-resolution satellite image patches (ranging from 0.25 m to 10 m) and 22,926,427 instance masks of individual fields, significantly narrowing the gap between agricultural datasets and those in other computer vision domains. We further propose <strong>Delineate Anything</strong>, an instance segmentation model trained on our new FBIS-22M dataset. Our proposed model sets a new state-of-the-art, achieving a substantial improvement of <strong>88.5%</strong> in mAP@0.5 and <strong>103%</strong> in mAP@0.5:0.95 over existing methods, while also demonstrating significantly faster inference and strong zero-shot generalization across diverse image resolutions and unseen geographic regions.</p>
+		<p>Accurate agricultural field boundary delineation at large scale is a foundational task for food security, supply chain transparency, and carbon accounting. While vision foundation models like SAM show remarkable zero-shot capabilities, they frequently fail in geospatial domains due to topological complexity, cropland texturing patterns, and a lack of physical scale awareness. In this work, we introduce <strong>Delineate Anything v2</strong>, a globally scalable foundation model designed specifically for wide-area field boundary mapping. We construct <strong>FBIS-73M</strong>, a 73-million-instance multi-resolution dataset spanning 61 countries. To address the pervasive issue of multi-field administrative parcel merging, we introduce a resolution-specific data curation pipeline that leverages topological image-space adaptation to homogenize merged parcels and strengthen weak physical boundaries. Furthermore, we establish a novel, manually curated evaluation benchmark covering 100 countries to assess independent zero-shot generalization. Our results show that Delineate Anything v2 surpasses the current state-of-the-art, including the Delineate Anything framework, by <strong>0.284 mAP@0.5 (+103.3% relative gain)</strong>, while maintaining execution speeds suitable for rapid national- and global-scale deployment, as demonstrated by nationwide mapping of Ukraine (603,000 km²) in 5.4 hours on a consumer-grade workstation.</p>
 	</div>
 	<div id="method">
 		<h2>Methodology</h2>
-		<p style="margin-top: 0px;"><strong>Our contributions are threefold:</strong></p>
 		<ol class="numeric-list">
 			<li>A novel task formulation of field boundary detection as an instance segmentation problem, addressing the inherent limitations of semantic segmentation for this task.</li>
-			<li>A new, large-scale, multi-resolution satellite imagery dataset for robust field boundary delineation.</li>
-			<li>A resolution-agnostic model that significantly outperforms current state-of-the-art methods for field boundary detection, while exhibiting superior inference speed and strong zero-shot generalization across diverse resolutions and geographic locations.</li>
+			<li>We construct FBIS-73M, a 73-million-instance multi-resolution field boundary repository spanning 61 countries — the largest public dataset of its kind.</li>
+			<li>We propose a data-centric noise remediation strategy that resolves the parcel-merging anomaly by combining manual partitioning for HR data with automated image-space pixel homogenization for MR data.</li>
+			<li>We manually curate a high-fidelity validation benchmark spanning 100 countries to evaluate generalization across diverse agricultural regimes.</li>
+			<li>We demonstrate that Delineate Anything v2 establishes a new state-of-the-art for global agricultural field delineation, surpassing the previous state-of-the-art Delineate Anything framework by 0.284 mAP@0.5 (+103.3% relative gain) and enabling nationwide mapping of Ukraine (603,000 km²) in 5.4 hours on a consumer-grade workstation.</li>
 		</ol>
-		<img src="./images/fig3.jpg" style="width: 400px; height: auto;" />
-		<div class="caption">Figure 2. <strong>Comparison of task formulations and evaluation metrics for field boundary delineation.</strong> The top row illustrates field boundary masks (semantic segmentation), while the bottom row shows individual field masks (instance segmentation). Ground truth examples are shown in (a) and (d). Slightly misaligned boundaries result in a boundary IoU of 0.08 (b) and an instance IoU of 0.98 (e). Partially detected boundaries yield a boundary IoU of 0.93 (c) and an instance IoU of 0.54 (f).</div>
+		<img src="./images/automatedRemediationPipeline.png" style="width: 750px; height: auto; margin-top: 20px;" />
+		<div class="caption">Figure 2. <strong>Automated medium-resolution topological image-space adaptation.</strong> Left to right: raw satellite patch; original administrative contours with parcel-versus-field mismatches highlighted in red; homogenized fields extracted via the anomaly mask; modified raster with unaltered (green) and remediated (red) contours; the finalized patch.</div>
 	</div>
-	<div id="method"> 
-		<h2><p>Field Boundary Instance Segmentation - 22M (FBIS-22M) dataset</p></h2>
-		<img src="./images/table1.jpg" style="width: 400px; height: auto; margin-top: 0px;" />
-		<div class="caption">Table 1. <strong>Comparison of FBIS-22M with existing datasets.</strong> The table compares FBIS-22M with general computer vision datasets and existing field boundary delineation datasets based on satellite imagery, highlighting FBIS-22M’s resolution range and scale.</div>
+	<div id="method">
+		<h2>Field Boundary Instance Segmentation - 73M (FBIS-73M) dataset</h2>
+		<p>FBIS-73M extends FBIS-22M into a 73-million-instance, multi-resolution (0.25m–10m) dataset spanning 61 countries with diverse imagery sources, built through a resolution-specific curation pipeline that resolves the parcel-versus-field mismatch present in raw administrative boundary sources.</p>
+		<div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:stretch; gap:20px; margin: 10px auto 6px; max-width: 900px;">
+			<div style="flex:1 1 400px; max-width:420px; display:flex; flex-direction:column; text-align:center;">
+				<img src="./images/testTrainWorldPlot.png" style="width:100%; height:auto;" />
+				<div style="margin-top:auto;">
+					<img src="./images/testTrainHist.png" style="width:100%; height:auto; margin-top:6px; margin-bottom:6px;" />
+					<div style="font-size:16px; color:#888;">(a) Training set (FBIS-73M)</div>
+				</div>
+			</div>
+			<div style="flex:1 1 400px; max-width:420px; display:flex; flex-direction:column; text-align:center;">
+				<img src="./images/valAvgFieldsWorldPlot.png" style="width:100%; height:auto;" />
+				<div style="margin-top:auto;">
+					<img src="./images/valAvgFieldsHist.png" style="width:100%; height:auto; margin-top:6px; margin-bottom:6px;" />
+					<div style="font-size:16px; color:#888;">(b) Evaluation benchmark (100 countries)</div>
+				</div>
+			</div>
+		</div>
+		<div class="caption">Figure 3. <strong>Geographic distribution of the training and evaluation data.</strong> (a) Sample density across the 61 countries in FBIS-73M, with per-country counts below. (b) Field density across the independent 100-country evaluation benchmark, with average fields per country below.</div>
+		<div class="caption" style="margin-bottom: 10px; margin-top: 30px;">Table 1. <strong>Comparison of FBIS-73M with existing general computer vision and field boundary delineation datasets.</strong> FBIS-73M is the largest and most diverse dataset of its kind, spanning 61 countries at resolutions from 0.25m to 10m.</div>
+		<div style="overflow-x:auto; max-width: 620px; margin: 0 auto;">
+		<table class="data-table compact-table" style="width:100%;">
+			<tr><th>Dataset</th><th>Resolution</th><th># Images</th><th># Instances</th></tr>
+			<tr class="group-row"><td colspan="4">General Computer Vision Datasets</td></tr>
+			<tr><td>LAION-5B <span class="cite">(Schuhmann et al., 2022)</span></td><td>-</td><td>5.85B</td><td>-</td></tr>
+			<tr><td>COCO <span class="cite">(Lin et al., 2014)</span></td><td>-</td><td>330K</td><td>1.5M</td></tr>
+			<tr><td>Open Images <span class="cite">(Kuznetsova et al., 2020)</span></td><td>-</td><td>998K</td><td>2.8M</td></tr>
+			<tr><td>SA-1B <span class="cite">(Kirillov et al., 2023)</span></td><td>-</td><td>11M</td><td>1.1B</td></tr>
+			<tr class="group-row"><td colspan="4">Field Boundary Delineation Datasets</td></tr>
+			<tr><td>Farm Parcel <span class="cite">(Aung et al., 2020)</span></td><td>10m</td><td>2K</td><td>-</td></tr>
+			<tr><td>India10K <span class="cite">(Wang et al., 2022)</span></td><td>-</td><td>-</td><td>10K</td></tr>
+			<tr><td>PASTIS <span class="cite">(Garnot and Landrieu, 2021)</span></td><td>10m</td><td>2K</td><td>124K</td></tr>
+			<tr><td>PASTIS-R <span class="cite">(Garnot et al., 2022)</span></td><td>10m</td><td>2K</td><td>124K</td></tr>
+			<tr><td>PASTIS-HD</td><td>1m & 10m</td><td>2K</td><td>124K</td></tr>
+			<tr><td>AI4SmallFarms <span class="cite">(Persello et al., 2023)</span></td><td>10m</td><td>62</td><td>439K</td></tr>
+			<tr><td>AI4Boundaries <span class="cite">(d'Andrimont et al., 2023)</span></td><td>1m & 10m</td><td>55K</td><td>2.5M</td></tr>
+			<tr><td>Fields of The World <span class="cite">(Kerner et al., 2024)</span></td><td>10m</td><td>70K</td><td>1.63M</td></tr>
+			<tr><td>FBIS-22M <span class="cite">(Lavreniuk et al., 2025)</span></td><td>0.25m-10m</td><td>673K</td><td>22.9M</td></tr>
+			<tr class="highlight-row"><td>FBIS-73M <span class="cite">(Lavreniuk et al., 2026)</span></td><td>0.25m-10m</td><td>1.47M</td><td>73M</td></tr>
+		</table>
+		</div>
 		<img src="./images/fig1.jpg" style="width: 600px; height: auto; margin-top: 50px;" />
-		<div class="caption">Figure 3. <strong>Examples of field boundary instance segmentation from our FBIS-22M dataset.</strong> The FBIS-22M dataset contains over 670K+ multi-resolution satellite images (ranging from 0.25m to 10m) and 22M+ field instance masks. Images are grouped by the number of fields to demonstrate the dataset's diversity and scalability, and a challenge of separating fields across varying resolutions and geographies.</div>
+		<div class="caption">Figure 4. <strong>Examples of field boundary instance segmentation.</strong> Images span resolutions from 0.25m to 10m and are grouped by the number of fields to demonstrate the dataset's diversity and scalability.</div>
 	</div>
-	<div id="method"> 
+	<div id="method">
 		<h2>Results</h2>
-		<img src="./images/table2.jpg" style="width: 400px; height: auto; margin-top: 0px;" />
-		<div class="caption">Table 2. <strong>Quantitative comparisons on the FBIS-22M test set.</strong> We compare our DelAny model and its smaller variant (DelAny-S) against other methods. &dagger;: Models retrained on our FBIS-22M dataset for fair comparison. Latency (ms) represents the total time required to generate field boundaries. Best results are in <strong>bold</strong>.</div>
+		<div class="caption" style="margin-bottom: 10px;">Table 2. <strong>Global Benchmark (100-Country Independent Evaluation).</strong></div>
+		<div style="overflow-x:auto; max-width: 900px; margin: 0 auto 30px;">
+		<table class="data-table compact-table" style="margin: 0 auto;">
+			<tr><th>Method</th><th>mAP@0.5</th><th>mAP@0.5:0.95</th><th>Precision</th><th>Recall</th><th>Latency (ms)</th><th>Size</th></tr>
+			<tr><td>Delineate Anything</td><td>0.275</td><td>0.103</td><td>0.345</td><td>0.454</td><td>25.0</td><td>125 MB</td></tr>
+			<tr class="highlight-row"><td>Delineate Anything v2</td><td>0.559</td><td>0.278</td><td>0.639</td><td>0.525</td><td>25.0</td><td>125 MB</td></tr>
+		</table>
+		</div>
+		<div class="caption" style="margin-top: 40px; margin-bottom: 10px;">Table 3. <strong>Regional Performance Breakdown (mAP@0.5).</strong> Delineate Anything v2 improves everywhere, with the largest gains in regions where the original model struggled most (Africa, Asia & Oceania).</div>
+		<div style="overflow-x:auto; max-width: 900px; margin: 0 auto;">
+		<table class="data-table compact-table" style="margin: 0 auto;">
+			<tr><th>Method</th><th>Europe</th><th>Africa</th><th>Asia & Oceania</th><th>Latin America</th><th>North America</th></tr>
+			<tr><td>Delineate Anything</td><td>0.332</td><td>0.251</td><td>0.161</td><td>0.314</td><td>0.317</td></tr>
+			<tr class="highlight-row"><td>Delineate Anything v2</td><td>0.612</td><td>0.584</td><td>0.440</td><td>0.563</td><td>0.618</td></tr>
+		</table>
+		</div>
+		<div class="caption" style="margin-top: 40px; margin-bottom: 10px;">Table 4. <strong>Ablation study of dataset scaling and data-centric remediation strategies.</strong></div>
+		<div style="overflow-x:auto; max-width: 900px; margin: 0 auto;">
+		<table class="data-table compact-table" style="margin: 0 auto;">
+			<tr><th>Training Configuration</th><th>mAP@0.5</th><th>Gains (Δ)</th></tr>
+			<tr><td>FBIS-22M (Baseline)</td><td>0.275</td><td>–</td></tr>
+			<tr><td>FBIS-73M (Raw labels, No Curation)</td><td>0.361</td><td>+0.086</td></tr>
+			<tr><td>FBIS-73M (+ HR Manual Split)</td><td>0.409</td><td>+0.048</td></tr>
+			<tr class="highlight-row"><td>Delineate Anything v2 (Full Curation Pipeline)</td><td>0.559</td><td>+0.150</td></tr>
+		</table>
+		</div>
+		<p style="margin-top: 40px; font-style: italic; color: #777;"><strong>Note:</strong> For a quantitative and qualitative comparison of Delineate Anything against generic vision foundation models (SAM, SAM2) and MultiTLF, see Table 2 and Figure 4 in the <a href="https://arxiv.org/abs/2504.02534">Delineate Anything paper</a>.</p>
 	</div>
 	<div id="method"> 
-		<h2>Visualizations</h2>
-		<img src="./images/fig4.jpg" style="width: 600px; height: auto;" />
-		<div class="caption">Figure 4. <strong>Qualitative results on the FBIS-22M test set.</strong> Delineate Anything is compared to MultiTLF, SAM, and SAM2. For a fair comparison, the MultiTLF model was retrained using our FBIS-22M dataset. Different samples are carefully selected and presented, varying in the size and density of the fields, to better illustrate the performance of each model under diverse conditions.</div>
-		<img src="./images/fig5.jpg" style="width: 900px; height: auto; margin-top: 30px;" />
-		<div class="caption">Figure 5. <strong>Qualitative results of zero-shot predictions.</strong> Delineate Anything is applied to geographic regions with different climates, terrains, and agricultural practices, highlighting its field boundary delineation capabilities outside the training data.</div>
+		<h2>Qualitative Visualization</h2>
+		<img src="./images/qualitative_results.png" style="width: 750px; height: auto;" />
+		<div class="caption">Figure 5. <strong>Zero-shot qualitative results across major macro-regions.</strong> Rows (top to bottom): raw RGB imagery, manual ground truth, and Delineate Anything v2 predictions. Columns represent Europe (Norway), Asia & Oceania (United Arab Emirates), North America (Costa Rica), Latin America & Caribbean (Peru), and Africa (South Sudan).</div>
+		<img src="./images/product_comparison.png" style="width: 750px; height: auto; margin-top: 30px;" />
+		<div class="caption">Figure 6. <strong>Qualitative comparison against operational mapping products.</strong> The field boundaries extracted by Delineate Anything v2 and the manual ground truth are contrasted directly with publicly available static layers from Delineate Anything, NASA Harvest, Sinergise Solutions, and Fields of the World (FTW).</div>
 	</div>
-	
+	<div id="method">
+		<h2>BibTeX</h2>
+		<pre><code>@inproceedings{lavreniuk2026delanyv2,
+  title={Delineate Anything v2: A Global Foundation Model for Field Delineation},
+  author={Mykola Lavreniuk and Nataliia Kussul and Andrii Shelestov and Yevhenii Salii and Volodymyr Kuzin and Charlotte Julia Li-Xing Wang and Zoltan Szantoi},
+  year={2026},
+  booktitle={European Conference on Computer Vision Workshops (ECCVW)},
+}
+
+@inproceedings{lavreniuk2025delineateanything,
+  title={Delineate Anything: Resolution-Agnostic Field Boundary Delineation on Satellite Imagery},
+  author={Mykola Lavreniuk and Nataliia Kussul and Andrii Shelestov and Bohdan Yailymov and Yevhenii Salii and Volodymyr Kuzin and Zoltan Szantoi},
+  year={2025},
+  booktitle={European Conference on Artificial Intelligence},
+}
+
+@article{lavreniuk2025delineateanythingflow,
+  title={Delineate Anything Flow: Fast, Country-Level Field Boundary Detection from Any Source},
+  author={Mykola Lavreniuk and Nataliia Kussul and Andrii Shelestov and Yevhenii Salii and Volodymyr Kuzin and Sergii Skakun and Zoltan Szantoi},
+  year={2025},
+  journal={https://arxiv.org/abs/2511.13417},
+}</code></pre>
+	</div>
+
 </body>
 </html>
