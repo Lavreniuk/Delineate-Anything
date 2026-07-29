@@ -248,8 +248,10 @@ def dissolve_inplace(input_gpkg, layername, field_name):
         ds = None
         return
 
-    # --- Step 2: Collect geometries for those values ---
+    # --- Step 2: Collect geometries and attributes for those values ---
+    defn = layer.GetLayerDefn()
     groups = {val: None for val in multi_vals}
+    group_attrs = {}
     fids_to_delete = []
     layer.ResetReading()
 
@@ -261,6 +263,12 @@ def dissolve_inplace(input_gpkg, layername, field_name):
                 geom = geom.Clone()
                 if groups[val] is None:
                     groups[val] = geom
+                    attrs = {}
+                    for i in range(defn.GetFieldCount()):
+                        fname = defn.GetFieldDefn(i).GetName()
+                        if fname != field_name:
+                            attrs[fname] = feat.GetField(i)
+                    group_attrs[val] = attrs
                 else:
                     groups[val] = groups[val].Union(geom)
             fids_to_delete.append(feat.GetFID())
@@ -273,7 +281,6 @@ def dissolve_inplace(input_gpkg, layername, field_name):
         layer.DeleteFeature(fid)
 
     # Insert dissolved features
-    defn = layer.GetLayerDefn()
     for val, geom in tqdm(groups.items(), desc="Inserting"):
         if geom is None:
             continue
@@ -284,6 +291,9 @@ def dissolve_inplace(input_gpkg, layername, field_name):
         new_feat = ogr.Feature(defn)
         new_feat.SetField(field_name, val)
         new_feat.SetGeometry(geom)
+        if val in group_attrs:
+            for fname, fval in group_attrs[val].items():
+                new_feat.SetField(fname, fval)
         layer.CreateFeature(new_feat)
         new_feat = None
 
