@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 import multiprocessing
 from multiprocessing import shared_memory
 import time

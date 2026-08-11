@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 from rasterio import features
 from shapely.geometry import shape
 from shapely.affinity import affine_transform as shapely_affine_transform
