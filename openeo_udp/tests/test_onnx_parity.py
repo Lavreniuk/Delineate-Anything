@@ -59,15 +59,18 @@ from openeo_udp.tests.test_local_udf import extract_tile, load_bap_cube
 # Config
 # ---------------------------------------------------------------------------
 INPUT_NC = _REPO_ROOT / "BAP_input.nc"
-WEIGHTS_DIR = _REPO_ROOT / "openeo_udp" / "tests" / "delineate_weights"
-PT_PATH = WEIGHTS_DIR / "DelineateAnything-S.pt"
-ONNX_PATH = WEIGHTS_DIR / "DelineateAnything-S.onnx"
+OUT_DIR = _REPO_ROOT / "openeo_udp" / "tests" / "test_outputs"
+PROCESS_GRAPH_WEIGHTS_DIR = _REPO_ROOT / "openeo_udp" / "process_graph" / "delineate_weights"
+LEGACY_WEIGHTS_DIR = _REPO_ROOT / "openeo_udp" / "tests" / "delineate_weights"
+WEIGHTS_DIR = PROCESS_GRAPH_WEIGHTS_DIR if PROCESS_GRAPH_WEIGHTS_DIR.exists() else LEGACY_WEIGHTS_DIR
+PT_PATH = WEIGHTS_DIR / "DelineateAnythingv2.pt"
+ONNX_PATH = WEIGHTS_DIR / "DelineateAnythingv2.onnx"
 
 TILE_SIZE = 512
 TILE_X_START = 100
 TILE_Y_START = 100
 
-CONFIDENCE_THRESHOLD = 0.005
+CONFIDENCE_THRESHOLD = 0.15
 IOU_THRESHOLD = 0.3
 MORPHOLOGY = False
 

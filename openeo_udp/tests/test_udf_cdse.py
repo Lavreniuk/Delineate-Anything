@@ -72,7 +72,7 @@ DEFAULT_ONNX_DEPS_ARCHIVE_URL = (
 # Keep this filename aligned with what you published in project_dependencies.
 DEFAULT_MODEL_ARCHIVE_URL = (
     "https://s3.waw3-1.cloudferro.com/"
-    "project_dependencies/DelineateAnything-S.zip#onnx_models"
+    "project_dependencies/DelineateAnythingv2.zip#onnx_models"
 )
 
 print("Using ONNX deps archive:", DEFAULT_ONNX_DEPS_ARCHIVE_URL)
@@ -86,7 +86,7 @@ DEFAULT_JOB_OPTIONS: dict = {
 }
 
 # Model reference path inside the mounted archive fragment.
-DEFAULT_WEIGHTS_URL = "onnx_models/DelineateAnything-S.onnx"
+DEFAULT_WEIGHTS_URL = "onnx_models/DelineateAnythingv2.onnx"
 
 # The model processes 512x512 tiles.  inner=384 + overlap=64 each side → the
 # UDF receives 512x512 tiles (384 + 2*64).  Overlap lets instance masks that
@@ -95,7 +95,7 @@ CHUNK_INNER_PX = 384
 CHUNK_OVERLAP_PX = 64
 
 # Detection / post-processing defaults (validated locally on BAP_input.nc).
-CONFIDENCE_THRESHOLD = 0.005
+CONFIDENCE_THRESHOLD = 0.15
 IOU_THRESHOLD = 0.3
 MORPHOLOGY = False
 

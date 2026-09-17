@@ -15,7 +15,7 @@ not need to change: point ``weights_url`` at the ``.onnx`` file and swap
 Usage::
 
     python openeo_udp/tests/export_to_onnx.py \\
-        --pt openeo_udp/tests/delineate_weights/DelineateAnything-S.pt \\
+        --pt openeo_udp/process_graph/delineate_weights/DelineateAnythingv2.pt \\
         --imgsz 512 --opset 17
 """
 
@@ -88,8 +88,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument(
         "--pt",
         type=Path,
-        default=_REPO_ROOT / "openeo_udp" / "tests" / "delineate_weights"
-        / "DelineateAnything-S.pt",
+        default=_REPO_ROOT / "openeo_udp" / "process_graph" / "delineate_weights"
+        / "DelineateAnythingv2.pt",
         help="Path to the .pt checkpoint",
     )
     ap.add_argument("--imgsz", type=int, default=512)

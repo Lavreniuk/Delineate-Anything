@@ -1,18 +1,18 @@
 #%%
-"""Local UDF test: run the Delineate-Anything PyTorch UDF on BAP_input.nc.
+"""Local UDF test: run the Delineate-Anything ONNX UDF on BAP_input.nc.
 
 Loads the local BAP composite NetCDF, distills it into an xarray DataArray,
 feeds a 512×512 tile straight into
-``openeo_udp.udf.delineate_pytorch.apply_datacube``, and saves a diagnostic
+``openeo_udp.udf.delineate_onnx.apply_datacube``, and saves a diagnostic
 plot to ``openeo_udp/tests/test_outputs/inference_output.png``.
 
 Requirements (installed in the local Python env, not via the openEO deps
 archive)::
 
-    pip install torch ultralytics xarray netCDF4 matplotlib numpy openeo
+    pip install onnxruntime xarray netCDF4 matplotlib numpy openeo
 
-The .pt checkpoint is downloaded from Hugging Face on first run and cached
-under ``delineate_weights/`` in the repo root.
+This test expects a local ONNX model file in
+``openeo_udp/process_graph/delineate_weights/``.
 
 Usage::
 
@@ -50,6 +50,7 @@ from openeo.udf import XarrayDataCube
 # ---------------------------------------------------------------------------
 INPUT_NC = _REPO_ROOT / "BAP_input.nc"
 OUT_DIR = _REPO_ROOT / "openeo_udp" / "tests" / "test_outputs"
+LOCAL_ONNX_PATH = _REPO_ROOT / "openeo_udp" / "process_graph" / "delineate_weights" / "DelineateAnythingv2.onnx"
 
 TILE_SIZE = 512
 TILE_X_START = 100
@@ -59,11 +60,11 @@ TILE_Y_START = 100
 # 3000 matches the S2 BOA scaling used by the reference pipeline. Set to 1.0
 # if your input is already in [0, 1].
 CONTEXT = {
-    "confidence_threshold": 0.005,
+    "confidence_threshold": 0.15,
     "iou_threshold": 0.3,
     "morphology": False,
     "input_scale": 1.0,
-    "weights_url": "https://huggingface.co/MykolaL/DelineateAnything/resolve/main/DelineateAnything-S.pt",
+    "weights_path": str(LOCAL_ONNX_PATH),
 }   
 
 
@@ -129,7 +130,7 @@ def extract_tile(da: xr.DataArray, x0: int, y0: int, size: int) -> xr.DataArray:
 
 def main() -> None:
     print("=" * 60)
-    print("LOCAL PYTORCH UDF TEST")
+    print("LOCAL ONNX UDF TEST")
     print("=" * 60)
     print(f"Loading {INPUT_NC}")
 

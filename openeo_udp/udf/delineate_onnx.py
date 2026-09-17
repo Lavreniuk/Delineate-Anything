@@ -1,11 +1,11 @@
 #%%
 """OpenEO UDF: Delineate-Anything field boundary detection via ONNX Runtime.
 
-The model artefact (``DelineateAnything-S.onnx``) and the ONNX runtime are
+The model artefact (``DelineateAnythingv2.onnx``) and the ONNX runtime are
 provided as ``udf-dependency-archives`` and mounted at:
 
     onnx_deps/      -> onnxruntime wheel(s)
-    onnx_models/    -> DelineateAnything-S.onnx (+ any siblings)
+    onnx_models/    -> DelineateAnythingv2.onnx (+ any siblings)
 
 This UDF does NOT download weights at runtime and has no torch / ultralytics
 dependency.  Inference and YOLO-seg post-processing (sigmoid → mask assembly
@@ -27,8 +27,8 @@ boundaries must be done downstream (e.g. by polygonising and re-numbering).
 Context overrides::
 
     {
-        "weights_path": "onnx_models/DelineateAnything-S.onnx",
-        "confidence_threshold": 0.005,
+        "weights_path": "onnx_models/DelineateAnythingv2.onnx",
+        "confidence_threshold": 0.15,
         "iou_threshold": 0.3,
         "morphology": false,
     }
@@ -61,10 +61,10 @@ logger = logging.getLogger(__name__)
 # ===========================================================================
 # Constants
 # ===========================================================================
-DEFAULT_ONNX_MODEL_NAME = "DelineateAnything-S.onnx"
+DEFAULT_ONNX_MODEL_NAME = "DelineateAnythingv2.onnx"
 DEFAULT_WEIGHTS_PATH = f"onnx_models/{DEFAULT_ONNX_MODEL_NAME}"
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.005
+DEFAULT_CONFIDENCE_THRESHOLD = 0.15
 DEFAULT_IOU_THRESHOLD = 0.3
 DEFAULT_MORPHOLOGY = False
 MODEL_INPUT_SIZE = 512
@@ -115,7 +115,7 @@ def _resolve_model_path(weights_ref: str) -> Path:
     raise FileNotFoundError(
         f"Could not find ONNX model for '{weights_ref}'. "
         "Mount it via udf-dependency-archives "
-        "(e.g. .../Deliniate-Anything-S.zip#onnx_models)."
+        "(e.g. .../DelineateAnythingv2.zip#onnx_models)."
     )
 
 
