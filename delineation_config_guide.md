@@ -31,7 +31,8 @@ These parameters must be properly set for accurate results.
 - **`nodata_band`** – If one band uniquely represents nodata, specify it here to improve speed.  
   Otherwise, set to `null`.
 - **`nodata_value`** – Use `[nodata_r, nodata_g, nodata_b]` when `nodata_band = null`.  
-  Otherwise, specify a single scalar value (not an array).
+  Otherwise, specify a single scalar value (not an array). Configured values are
+  excluded from normalization as well as from inference tiles.
 
 ## RAM-Dependent Parameters
 
