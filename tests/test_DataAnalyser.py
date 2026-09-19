@@ -3,6 +3,7 @@ from osgeo import gdal, osr
 
 from methods.main.DataAnalyser import DataAnalyser
 
+gdal.UseExceptions()
 
 def test_normalization_excludes_nodata_value(tmp_path):
     path = str(tmp_path / "input.tif")
