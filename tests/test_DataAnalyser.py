@@ -41,3 +41,38 @@ def test_normalization_nodata_value(tmp_path, nodata_value, expected_max):
     else:
         assert analyser.max[0] < expected_max
     assert analyser.min[0] > 0
+
+
+@pytest.mark.parametrize(
+    ("bands", "nodata_value", "match"),
+    [
+        ([3, 2, 1], [0, 65535, 65535], "nodata metadata mismatch"),
+        ([1], None, "nodata_value is not configured"),
+    ],
+    ids=["mismatch", "config_missing"],
+)
+def test_warns_on_nodata_metadata_mismatch(tmp_path, bands, nodata_value, match):
+    path = str(tmp_path / "input.tif")
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(path, 10, 10, max(bands), gdal.GDT_UInt16)
+    dataset.SetGeoTransform((0, 10, 0, 20, 0, -10))
+    spatial_ref = osr.SpatialReference()
+    spatial_ref.ImportFromEPSG(32631)
+    dataset.SetProjection(spatial_ref.ExportToWkt())
+
+    for band_idx in range(1, max(bands) + 1):
+        band = dataset.GetRasterBand(band_idx)
+        band.SetNoDataValue(65535)
+        band.WriteArray(np.zeros((10, 10), dtype=np.uint16))
+
+    dataset = None
+
+    with pytest.warns(UserWarning, match=match):
+        DataAnalyser(
+            [path],
+            bands=bands,
+            sr=None,
+            norm_min=None,
+            norm_max=None,
+            nodata_value=nodata_value,
+        )

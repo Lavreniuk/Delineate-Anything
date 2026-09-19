@@ -3,6 +3,48 @@ import numpy as np
 import cv2
 
 class DataLoaderCached:
+    @staticmethod
+    def _normalize_part(data, lower=None, upper=None, percentiles=None, nodata_value=None):
+        arr = np.asarray(data)
+
+        if (lower is not None or upper is not None) and percentiles is not None:
+            raise ValueError("Specify either lower/upper or percentiles, not both.")
+
+        if percentiles is not None:
+            valid = np.ones(arr.shape, dtype=bool)
+            if nodata_value is not None:
+                valid &= arr != nodata_value
+            valid &= np.isfinite(arr)
+            valid_values = arr[valid]
+
+            if valid_values.size == 0:
+                return np.zeros(arr.shape, dtype=np.uint8)
+
+            lo, hi = np.percentile(valid_values, percentiles)
+            if np.isclose(lo, hi):
+                norm = np.zeros(arr.shape, dtype=np.uint8)
+            else:
+                scaled = (arr.astype(np.float32) - lo) / (hi - lo)
+                scaled = np.clip(scaled, 0.0, 1.0)
+                norm = (scaled * 255.0).astype(np.uint8)
+                if nodata_value is not None:
+                    nodata_mask = (arr == nodata_value)
+                    norm[nodata_mask] = 255
+            return norm
+
+        if lower is None and upper is None:
+            raise ValueError("Either lower/upper or percentiles must be specified.")
+
+        if lower is None or upper is None:
+            raise ValueError("Both lower and upper must be specified together.")
+
+        if lower == upper:
+            return np.zeros(arr.shape, dtype=np.uint8)
+
+        scaled = (arr.astype(np.float32) - lower) / (upper - lower)
+        scaled = np.clip(scaled, 0.0, 1.0)
+        return (scaled * 255.0).astype(np.uint8)
+
     def __init__(self, plan, config, batch_size, lclu_path, lclu_config):
         self.skip = config["skip"]
         self.bands = config["bands"]
@@ -10,6 +52,7 @@ class DataLoaderCached:
         self.nodata_value = config["nodata_value"]
         self.min = config["min"]
         self.max = config["max"]
+        self.normalize_local = bool(config.get("normalize_local", False))
 
         self.lclu_range = lclu_config["range"]
         self.lclu_clip_values = lclu_config["clip_classes"]
@@ -159,11 +202,21 @@ class DataLoaderCached:
 
         for i in range(len(self.bands)):
             ds_band = ds.GetRasterBand(self.bands[i])
+            target_nodata = self.nodata_value[i] if isinstance(self.nodata_value, (list, tuple, np.ndarray)) else self.nodata_value
+
             value = ds_band.ReadAsArray(max(0, begin_offset[0]), max(0, begin_offset[1]), x_end - x_begin, y_end - y_begin)
 
-            self.image_cache[y_begin:y_end, x_begin:x_end, i] = np.clip(255 * ((value - self.min[i]) / (self.max[i] - self.min[i])), 0, 255).astype("uint8")
+            if self.normalize_local:
+                self.image_cache[y_begin:y_end, x_begin:x_end, i] = self._normalize_part(
+                    value,
+                    percentiles=[1, 99],
+                    nodata_value=target_nodata,
+                )
+            else:
+                self.image_cache[y_begin:y_end, x_begin:x_end, i] = np.clip(255 * ((value - self.min[i]) / (self.max[i] - self.min[i])), 0, 255).astype("uint8")
+
             if self.nodata_band is None:
-                self.image_cache[y_begin:y_end, x_begin:x_end, -2] &= (value == self.nodata_value[i])
+                self.image_cache[y_begin:y_end, x_begin:x_end, -2] &= (value == target_nodata)
 
         if self.nodata_band is not None:
             ds_band = ds.GetRasterBand(self.nodata_band)

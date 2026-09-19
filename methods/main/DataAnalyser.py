@@ -1,7 +1,10 @@
-from osgeo import gdal, osr
-import numpy as np
 import math
+import warnings
+
+import numpy as np
+from osgeo import gdal, osr
 from tqdm import tqdm
+
 
 class DataAnalyser:
     def __init__(self, tiffs, bands, sr, norm_min, norm_max, nodata_value=None):
@@ -12,6 +15,56 @@ class DataAnalyser:
         self.min = norm_min
         self.max = norm_max
         self.nodata_value = nodata_value
+
+        self._check_nodata_metadata()
+
+    def _check_nodata_metadata(self):
+        for file in self.tiffs:
+            ds = gdal.Open(file, gdal.GA_ReadOnly)
+            if ds is None:
+                continue
+
+            for band_index in self.bands:
+                band = ds.GetRasterBand(band_index)
+                metadata_nodata = band.GetNoDataValue()
+                if isinstance(self.nodata_value, (list, tuple, np.ndarray)):
+                    configured = self.nodata_value[self.bands.index(band_index)]
+                else:
+                    configured = self.nodata_value
+                self._warn_if_nodata_mismatch(file, band_index, metadata_nodata, configured)
+
+            ds = None
+
+    @staticmethod
+    def _warn_if_nodata_mismatch(file_path, band_index, metadata_value, configured_value):
+        if metadata_value is None and configured_value is None:
+            return
+
+        if isinstance(configured_value, (list, tuple, np.ndarray)):
+            positional = configured_value[band_index - 1] if band_index - 1 < len(configured_value) else configured_value[-1]
+        else:
+            positional = configured_value
+
+        if isinstance(metadata_value, np.ndarray):
+            metadata_value = metadata_value.item() if metadata_value.size == 1 else metadata_value[0]
+
+        if metadata_value is not None and configured_value is None:
+            warnings.warn(
+                f"nodata metadata mismatch for {file_path} band {band_index}: TIFF nodata={metadata_value} is set but nodata_value is not configured.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return
+
+        if metadata_value is None or positional is None:
+            return
+
+        if not np.isclose(float(metadata_value), float(positional)):
+            warnings.warn(
+                f"nodata metadata mismatch for {file_path} band {band_index}: TIFF nodata={metadata_value} differs from configured nodata_value={positional}.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def calcNormalizationBounds(self):
         def calculate_percentiles(data, percentiles=(1, 99)):
