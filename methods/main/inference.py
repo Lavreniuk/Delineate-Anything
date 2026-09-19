@@ -67,7 +67,7 @@ def execute(model_paths, config, verbose):
 
     logger.info(tiffs)
 
-    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"], config["data_loader"]["min"], config["data_loader"]["max"])
+    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"], config["data_loader"]["min"], config["data_loader"]["max"], config["data_loader"].get("nodata_value"))
     if not analyser.isCompatible():
         logger.error(f"Incompatible tiff files. Ensure the same projection and pixel size fo each file in the folder.")
         return

@@ -4,13 +4,14 @@ import math
 from tqdm import tqdm
 
 class DataAnalyser:
-    def __init__(self, tiffs, bands, sr, norm_min, norm_max):
+    def __init__(self, tiffs, bands, sr, norm_min, norm_max, nodata_value=None):
         self.tiffs = tiffs
         self.bands = bands
         self.sr = sr
         self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
         self.min = norm_min
         self.max = norm_max
+        self.nodata_value = nodata_value
 
     def calcNormalizationBounds(self):
         def calculate_percentiles(data, percentiles=(1, 99)):
@@ -36,7 +37,10 @@ class DataAnalyser:
                     return
 
                 data = rb.ReadAsArray()
-                z = data[data > 0]
+                valid = data > 0
+                if self.nodata_value is not None:
+                    valid &= data != self.nodata_value[i]
+                z = data[valid]
                 p1, p99 = calculate_percentiles(z)
 
                 self.min[i].append(p1)
