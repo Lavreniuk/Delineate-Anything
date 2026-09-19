@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 import os
 from osgeo import osr, ogr
 import logging

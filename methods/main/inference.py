@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 from ultralytics import YOLO
 import os
 import time

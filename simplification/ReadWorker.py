@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 import multiprocessing
 from osgeo import ogr
 import traceback
