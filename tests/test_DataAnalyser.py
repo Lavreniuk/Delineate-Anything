@@ -6,6 +6,7 @@ from methods.main.DataAnalyser import DataAnalyser
 gdal.UseExceptions()
 
 def test_normalization_excludes_nodata_value(tmp_path):
+    # Prepare test data
     path = str(tmp_path / "input.tif")
     driver = gdal.GetDriverByName("GTiff")
     dataset = driver.Create(path, 2, 2, 1, gdal.GDT_UInt16)
@@ -16,7 +17,10 @@ def test_normalization_excludes_nodata_value(tmp_path):
     dataset.GetRasterBand(1).WriteArray(np.array([[1, 2], [3, 65535]], dtype=np.uint16))
     dataset = None
 
-    analyser = DataAnalyser([path], [1], None, None, None, [65535])
+    # Test
+    analyser = DataAnalyser(
+        [path], bands=[1], sr=None, norm_min=None, norm_max=None, nodata_value=[65535]
+    )
     analyser.calcNormalizationBounds()
 
     assert analyser.max[0] < 65535
