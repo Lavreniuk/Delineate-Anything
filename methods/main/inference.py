@@ -381,7 +381,7 @@ def postdelineation_merge(layer_info, filter_config):
 
             max_id = max(max_id, fid)
             features_to_delete.append(fid)
-                
+
         # delete useless features
         for fid in tqdm(features_to_delete, desc="Deleting", unit="poly"):
             layer.DeleteFeature(fid)
@@ -403,6 +403,12 @@ def postdelineation_merge(layer_info, filter_config):
             if merged is None or merged.IsEmpty():
                 logger.debug(f"Skipping id={id}: union failed or returned empty")
                 continue
+
+            # Adjacent polygonization worker chunks compute vertices from independent
+            # geotransforms, so shared edges can be off by sub-pixel float error and
+            # fail to dissolve into one polygon. A tiny buffer round-trip closes those gaps.
+            if merged.GetGeometryType() == ogr.wkbMultiPolygon and merged.GetGeometryCount() > 1:
+                merged = merged.Buffer(0.01).Buffer(-0.01)
 
             # Now decompose MultiPolygon into individual Polygon features
             geom_type = merged.GetGeometryType()
