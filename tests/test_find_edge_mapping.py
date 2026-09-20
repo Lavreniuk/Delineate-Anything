@@ -4,7 +4,9 @@ from methods.main.PostprocWorker import PostprocWorker
 
 
 def test_find_edge_mapping_merges_small_fragment_fully_contained_in_large_field():
-    """A small fragment whose overlap is almost entirely contained within a much
+    """Test that fragment fully contained within a larger field is correctly merged.
+    
+    A small fragment whose overlap is almost entirely contained within a much
     larger already-written field should be merged, even though the fragment is
     so small relative to the big field that the global IoU stays tiny.
 
@@ -35,4 +37,4 @@ def test_find_edge_mapping_merges_small_fragment_fully_contained_in_large_field(
         merge_asymetric_relative_area_threshold=0.6,
     )
 
-    assert dst == {300: [200]}, "the small fully-contained fragment should be merged into the big field"
+    assert dst == {300: [200]}
