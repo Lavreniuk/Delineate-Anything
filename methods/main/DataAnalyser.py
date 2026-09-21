@@ -1,10 +1,10 @@
 import math
 import warnings
 
-import numpy as np
 from osgeo import gdal, osr
-from tqdm import tqdm
+import numpy as np
 
+from tqdm import tqdm
 
 class DataAnalyser:
     def __init__(
@@ -114,6 +114,7 @@ class DataAnalyser:
                 elif self.nodata_band is None and self.nodata_value is not None:
                     valid &= data != self.nodata_value[i]
                 z = data[valid]
+                z = data[data > 0]
                 p1, p99 = calculate_percentiles(z)
 
                 self.min[i].append(p1)

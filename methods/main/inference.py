@@ -371,6 +371,11 @@ def postdelineation_merge(layer_info, filter_config):
 
         transform = osr.CoordinateTransformation(src_srs, dst_src)
 
+        # Floating point calculations can result in small rounding errors, so in some
+        # cases we need to account for them. To keep the tolerance as small as possible,
+        # determine it based on the coordinate system being geographic or projected.
+        float_tolerance = 1e-9 if src_srs.IsGeographic() else 1e-6
+
         # filtering polygons, and collect polygons what require merge
         field_parts = {}
         features_to_delete = []
@@ -393,7 +398,7 @@ def postdelineation_merge(layer_info, filter_config):
 
             max_id = max(max_id, fid)
             features_to_delete.append(fid)
-                
+
         # delete useless features
         for fid in tqdm(features_to_delete, desc="Deleting", unit="poly"):
             layer.DeleteFeature(fid)
@@ -415,6 +420,13 @@ def postdelineation_merge(layer_info, filter_config):
             if merged is None or merged.IsEmpty():
                 logger.debug(f"Skipping id={id}: union failed or returned empty")
                 continue
+
+            # Adjacent polygonization worker chunks compute vertices from independent
+            # geotransforms, so shared edges can be off by sub-pixel float error and
+            # fail to dissolve into one polygon. A tiny buffer round-trip closes those
+            # gaps.
+            if merged.GetGeometryType() == ogr.wkbMultiPolygon and merged.GetGeometryCount() > 1:
+                merged = merged.Buffer(float_tolerance).Buffer(-float_tolerance)
 
             # Now decompose MultiPolygon into individual Polygon features
             geom_type = merged.GetGeometryType()
