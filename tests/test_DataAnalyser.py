@@ -7,19 +7,22 @@ from methods.main.DataAnalyser import DataAnalyser
 gdal.UseExceptions()
 
 @pytest.mark.parametrize(
-    ("nodata_value", "expected_max", "expected_nodata_value"),
+    ("nodata_value", "nodata_band", "expected_max", "expected_nodata_value"),
     [
-        (None, 65535, None),
-        ([65535], 3, [65535]),
-        (65535, 3, [65535]),
+        (None, None, 65535, None),
+        ([65535], None, 3, [65535]),
+        (65535, None, 3, [65535]),
+        (1, 2, 3, 1),
     ],
-    ids=["without_nodata_value", "with_nodata_value_list", "with_nodata_value_scalar"],
+    ids=["without_nodata_value", "with_nodata_value_list", "with_nodata_value_scalar", "with_nodata_band"],
 )
-def test_normalization_nodata_value(tmp_path, nodata_value, expected_max, expected_nodata_value):
+def test_normalization_nodata_value(tmp_path, nodata_value, nodata_band, expected_max, expected_nodata_value):
     # Prepare test data
     path = str(tmp_path / "input.tif")
     driver = gdal.GetDriverByName("GTiff")
-    dataset = driver.Create(path, 10, 10, 1, gdal.GDT_UInt16)
+    # band 1 holds the color data; band 2 is a dedicated nodata mask, only
+    # consulted by the with_nodata_band case (bands=[1] ignores it otherwise).
+    dataset = driver.Create(path, 10, 10, 2, gdal.GDT_UInt16)
     dataset.SetGeoTransform((0, 10, 0, 20, 0, -10))
     spatial_ref = osr.SpatialReference()
     spatial_ref.ImportFromEPSG(32631)
@@ -27,6 +30,7 @@ def test_normalization_nodata_value(tmp_path, nodata_value, expected_max, expect
     values = np.full((10, 10), 65535, dtype=np.uint16)
     values[0, :3] = [1, 2, 3]
     dataset.GetRasterBand(1).WriteArray(values)
+    dataset.GetRasterBand(2).WriteArray((values == 65535).astype(np.uint16))
     dataset = None
 
     # Test
@@ -37,10 +41,13 @@ def test_normalization_nodata_value(tmp_path, nodata_value, expected_max, expect
         norm_min=None,
         norm_max=None,
         nodata_value=nodata_value,
+        nodata_band=nodata_band,
     )
 
     # a scalar nodata_value is broadcast to one entry per band, so downstream
-    # code can always index it without special-casing the scalar form
+    # code can always index it without special-casing the scalar form; but a
+    # dedicated nodata_band marks that single band, not one value per color
+    # band, so it must stay a scalar
     assert analyser.nodata_value == expected_nodata_value
 
     analyser.calcNormalizationBounds()

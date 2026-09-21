@@ -7,20 +7,24 @@ from tqdm import tqdm
 
 
 class DataAnalyser:
-    def __init__(self, tiffs, bands, sr, norm_min, norm_max, nodata_value=None):
+    def __init__(self, tiffs, bands, sr, norm_min, norm_max, nodata_value=None, nodata_band=None):
         self.tiffs = tiffs
         self.bands = bands
         self.sr = sr
         self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
         self.min = norm_min
         self.max = norm_max
-        # accept either a single value or a per-band list/tuple/array; normalize
-        # here so downstream code never has to special-case the scalar form.
-        if nodata_value is not None and not isinstance(nodata_value, (list, tuple, np.ndarray)):
+        self.nodata_band = nodata_band
+        # a dedicated nodata_band uses nodata_value as a single scalar marker for
+        # that band rather than one value per color band, so only normalize a
+        # scalar into a per-band list (and run the per-band metadata checks
+        # below) when there is no separate nodata_band.
+        if nodata_band is None and nodata_value is not None and not isinstance(nodata_value, (list, tuple, np.ndarray)):
             nodata_value = [nodata_value] * len(bands)
         self.nodata_value = nodata_value
 
-        self._check_nodata_metadata()
+        if self.nodata_band is None:
+            self._check_nodata_metadata()
 
     def _check_nodata_metadata(self):
         for file in self.tiffs:
@@ -78,7 +82,11 @@ class DataAnalyser:
 
         for file in tqdm(self.tiffs):
             ds = gdal.Open(file, gdal.GA_ReadOnly)
-            
+
+            nodata_band_mask = None
+            if self.nodata_band is not None and self.nodata_value is not None:
+                nodata_band_mask = ds.GetRasterBand(self.nodata_band).ReadAsArray() == self.nodata_value
+
             for i in range(len(BANDS)):
                 rb = ds.GetRasterBand(BANDS[i])
                 if rb.DataType == gdal.GDT_Byte:
@@ -89,7 +97,9 @@ class DataAnalyser:
 
                 data = rb.ReadAsArray()
                 valid = data > 0
-                if self.nodata_value is not None:
+                if nodata_band_mask is not None:
+                    valid &= ~nodata_band_mask
+                elif self.nodata_band is None and self.nodata_value is not None:
                     valid &= data != self.nodata_value[i]
                 z = data[valid]
                 p1, p99 = calculate_percentiles(z)

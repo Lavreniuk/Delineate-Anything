@@ -67,12 +67,21 @@ def execute(model_paths, config, verbose):
 
     logger.info(tiffs)
 
-    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"], config["data_loader"]["min"], config["data_loader"]["max"], config["data_loader"].get("nodata_value"))
+    analyser = DataAnalyser(
+        tiffs,
+        bands=config["data_loader"]["bands"],
+        sr=config["super_resolution"],
+        norm_min=config["data_loader"]["min"],
+        norm_max=config["data_loader"]["max"],
+        nodata_value=config["data_loader"].get("nodata_value"),
+        nodata_band=config["data_loader"].get("nodata_band"),
+    )
     if not analyser.isCompatible():
-        logger.error(f"Incompatible tiff files. Ensure the same projection and pixel size fo each file in the folder.")
+        logger.error("Incompatible tiff files. Ensure the same projection and pixel size for each file in the folder.")
         return
 
-    # analyser normalizes a scalar nodata_value into a per-band list; keep the loader in sync.
+    # analyser normalizes a scalar nodata_value into a per-band list (unless a
+    # nodata_band is configured, in which case it stays a scalar); keep the loader in sync.
     config["data_loader"]["nodata_value"] = analyser.nodata_value
 
     logger.info("Estimating normalization bounds...")
