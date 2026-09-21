@@ -40,8 +40,8 @@ def test_normalization_nodata_value(tmp_path, nodata_value, nodata_band, expecte
         sr=None,
         norm_min=None,
         norm_max=None,
-        nodata_value=nodata_value,
         nodata_band=nodata_band,
+        nodata_value=nodata_value,
     )
 
     # a scalar nodata_value is broadcast to one entry per band, so downstream
@@ -57,6 +57,28 @@ def test_normalization_nodata_value(tmp_path, nodata_value, nodata_band, expecte
     else:
         assert analyser.max[0] < expected_max
     assert analyser.min[0] > 0
+
+
+def test_rejects_missing_nodata_value_with_nodata_band(tmp_path):
+    path = str(tmp_path / "input.tif")
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(path, 10, 10, 2, gdal.GDT_UInt16)
+    dataset.SetGeoTransform((0, 10, 0, 20, 0, -10))
+    spatial_ref = osr.SpatialReference()
+    spatial_ref.ImportFromEPSG(32631)
+    dataset.SetProjection(spatial_ref.ExportToWkt())
+    dataset = None
+
+    with pytest.raises(ValueError, match="nodata_value must be specified as a single value"):
+        DataAnalyser(
+            [path],
+            bands=[1],
+            sr=None,
+            norm_min=None,
+            norm_max=None,
+            nodata_band=2,
+            nodata_value=None,
+        )
 
 
 @pytest.mark.parametrize(
@@ -90,5 +112,6 @@ def test_warns_on_nodata_metadata_mismatch(tmp_path, bands, nodata_value, match)
             sr=None,
             norm_min=None,
             norm_max=None,
+            nodata_band=None,
             nodata_value=nodata_value,
         )

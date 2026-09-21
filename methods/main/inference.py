@@ -73,8 +73,8 @@ def execute(model_paths, config, verbose):
         sr=config["super_resolution"],
         norm_min=config["data_loader"]["min"],
         norm_max=config["data_loader"]["max"],
-        nodata_value=config["data_loader"].get("nodata_value"),
         nodata_band=config["data_loader"].get("nodata_band"),
+        nodata_value=config["data_loader"].get("nodata_value"),
     )
     if not analyser.isCompatible():
         logger.error("Incompatible tiff files. Ensure the same projection and pixel size for each file in the folder.")

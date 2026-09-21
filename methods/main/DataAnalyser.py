@@ -7,19 +7,31 @@ from tqdm import tqdm
 
 
 class DataAnalyser:
-    def __init__(self, tiffs, bands, sr, norm_min, norm_max, nodata_value=None, nodata_band=None):
+    def __init__(
+        self,
+        tiffs: list[str],
+        bands: list[int],
+        sr: osr.SpatialReference | None,
+        norm_min: float | None,
+        norm_max: float | None,
+        nodata_band: int | None,
+        nodata_value: float | list[float] | None,
+    ):
         self.tiffs = tiffs
         self.bands = bands
         self.sr = sr
         self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
         self.min = norm_min
         self.max = norm_max
+    
         self.nodata_band = nodata_band
-        # a dedicated nodata_band uses nodata_value as a single scalar marker for
-        # that band rather than one value per color band, so only normalize a
-        # scalar into a per-band list (and run the per-band metadata checks
-        # below) when there is no separate nodata_band.
-        if nodata_band is None and nodata_value is not None and not isinstance(nodata_value, (list, tuple, np.ndarray)):
+        if self.nodata_band is not None:
+            # a dedicated nodata_band needs nodata_value to be a single scalar value
+            if nodata_value is None or isinstance(nodata_value, (list, tuple, np.ndarray)):
+                raise ValueError("When a dedicated nodata_band is used, nodata_value must be specified as a single value.")
+        elif nodata_value is not None and not isinstance(nodata_value, (list, tuple, np.ndarray)):
+            # no dedicated nodata_band but a single nodata value was provided, so
+            # convert the single value to a list per band
             nodata_value = [nodata_value] * len(bands)
         self.nodata_value = nodata_value
 
