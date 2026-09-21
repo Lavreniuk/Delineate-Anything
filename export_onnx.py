@@ -1,85 +1,38 @@
-﻿#!/usr/bin/env python
-"""Export the Delineate-Anything YOLO field-boundary model to ONNX.
+﻿#%%
 
-Delineate-Anything (https://huggingface.co/MykolaL/DelineateAnything) is an
-Ultralytics YOLO instance-segmentation model. Ultralytics provides a built-in
-ONNX exporter, so this script:
+#!/usr/bin/env python
+"""Convert a local Delineate-Anything .pt checkpoint to ONNX.
 
-  1. Downloads (or accepts a local path to) the .pt checkpoint.
-  2. Loads it with `ultralytics.YOLO(...)`.
-  3. Exports to ONNX with sensible defaults for tiled inference
-     (imgsz=512, opset 17, optional dynamic batch / spatial axes).
-  4. Optionally runs an `onnxruntime` parity check vs. the PyTorch model.
+Notebook workflow:
+        from export_onnx import main
+        main(validate=True)
 
-Usage:
-    python export_onnx.py --variant large_v2 --output DelineateAnything.onnx --validate
-
-    # Or from a local .pt file:
-    python export_onnx.py --weights ./DelineateAnything.pt --output DelineateAnything.onnx
-
-Requirements (local environment):
-    pip install ultralytics onnx onnxruntime onnxslim huggingface_hub
-
-Notes:
-- Ultralytics writes the ONNX file next to the .pt file by default. We move it
-  to --output afterwards so paths follow this repo's release layout.
-- `--dynamic` enables dynamic batch + spatial axes. Some downstream runtimes
-  (notably older onnxruntime versions on the openEO backend) prefer a fixed
-  shape; in that case omit --dynamic and the model is exported at
-  (1, 3, imgsz, imgsz).
-- The exported graph still emits raw YOLO seg outputs (detections + mask
-  prototypes). Post-processing (NMS, mask assembly, polygonization) is NOT
-  part of the ONNX file and must be implemented in the consuming UDF.
+        # Or explicit paths:
+        main(
+                weights_path=r"C:\Git_projects\Delineate-Anything\openeo_udp\process_graph\delineate_weights\DelineateAnythingv2.pt",
+                output_path=r"C:\Git_projects\Delineate-Anything\openeo_udp\process_graph\delineate_weights\DelineateAnythingv2.onnx",
+                validate=True,
+        )
 """
 
 from __future__ import annotations
 
-import argparse
 import logging
 import shutil
-import sys
 import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
 
 logger = logging.getLogger(__name__)
 
-HF_REPO_ID = "MykolaL/DelineateAnything"
-VARIANTS = {
-    "small": "DelineateAnything-S.pt",
-    "large": "DelineateAnything.pt",
-    "large_v2": "DelineateAnythingv2.pt",
-}
+DEFAULT_LOCAL_V2_WEIGHTS = (
+    REPO / "openeo_udp" / "process_graph" / "delineate_weights" / "DelineateAnythingv2.pt"
+)
+DEFAULT_LOCAL_V2_ONNX = DEFAULT_LOCAL_V2_WEIGHTS.with_suffix(".onnx")
 
 
-def _resolve_weights(variant: str | None, weights_arg: str | None) -> Path:
-    """Return a local path to the .pt checkpoint, downloading from HF if needed."""
-    if weights_arg:
-        p = Path(weights_arg)
-        if not p.is_absolute():
-            p = (REPO / p).resolve()
-        if not p.exists():
-            raise FileNotFoundError(f"Weights not found: {p}")
-        return p
-
-    if variant is None:
-        raise ValueError("Provide either --weights or --variant {small,large,large_v2}")
-    if variant not in VARIANTS:
-        raise ValueError(f"Unknown variant '{variant}'. Choices: {list(VARIANTS)}")
-
-    try:
-        from huggingface_hub import hf_hub_download
-    except ModuleNotFoundError as e:
-        raise ModuleNotFoundError(
-            "Missing dependency: pip install huggingface_hub"
-        ) from e
-
-    logger.info("Downloading %s from %s ...", VARIANTS[variant], HF_REPO_ID)
-    local = hf_hub_download(repo_id=HF_REPO_ID, filename=VARIANTS[variant])
-    return Path(local)
+#%%
 
 
 def _export_onnx(
@@ -176,65 +129,73 @@ def _validate_onnx(weights_path: Path, onnx_path: Path, imgsz: int) -> None:
             print(f"  Output[{i}] shape={oarr.shape} max_abs_diff={diff:.6f}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("--output", required=True, help="Output ONNX path (absolute or repo-relative)")
-    parser.add_argument("--variant", choices=list(VARIANTS), default=None,
-                        help="Which DelineateAnything checkpoint to fetch from Hugging Face")
-    parser.add_argument("--weights", default=None,
-                        help="Optional local path to a .pt checkpoint (overrides --variant)")
-    parser.add_argument("--imgsz", type=int, default=512, help="Export input size (default 512, matches training tile)")
-    parser.add_argument("--opset", type=int, default=17, help="ONNX opset version (default 17)")
-    parser.add_argument("--dynamic", action="store_true",
-                        help="Export with dynamic batch + spatial axes (default: fixed 1x3xHxW)")
-    parser.add_argument("--half", action="store_true", help="Export FP16 weights (requires --device cuda)")
-    parser.add_argument("--no-simplify", action="store_true", help="Disable onnxslim graph simplification")
-    parser.add_argument("--device", default="cpu", help="Device for the export forward pass (cpu / 0 / cuda)")
-    parser.add_argument("--validate", action="store_true",
-                        help="Run onnx.checker + onnxruntime parity check after export")
-    parser.add_argument("--verbose", action="store_true", help="Enable INFO logging")
-    args = parser.parse_args()
+def main(
+    weights_path: str | Path | None = None,
+    output_path: str | Path | None = None,
+    *,
+    validate: bool = False,
+    imgsz: int = 512,
+    opset: int = 17,
+    dynamic: bool = False,
+    half: bool = False,
+    simplify: bool = True,
+    device: str = "cpu",
+    verbose: bool = False,
+) -> Path:
+    """Notebook entrypoint: convert local .pt checkpoint to ONNX.
 
+    If ``weights_path`` is omitted, uses the default local v2 checkpoint path.
+    """
     logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
+        level=logging.INFO if verbose else logging.WARNING,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    output_path = Path(args.output)
-    if not output_path.is_absolute():
-        output_path = (REPO / output_path).resolve()
+    weights = Path(weights_path) if weights_path is not None else DEFAULT_LOCAL_V2_WEIGHTS
+    if not weights.is_absolute():
+        weights = (REPO / weights).resolve()
+    if not weights.exists():
+        # Backward-compat: old notebooks used openeo_udp/tests/delineate_weights.
+        stale = Path("openeo_udp") / "tests" / "delineate_weights"
+        fixed = Path("openeo_udp") / "process_graph" / "delineate_weights"
+        if stale.as_posix() in weights.as_posix():
+            remapped = Path(str(weights).replace(str(stale), str(fixed)))
+            if remapped.exists():
+                weights = remapped
+        if not weights.exists():
+            raise FileNotFoundError(f"Weights not found: {weights}")
+
+    output = Path(output_path) if output_path is not None else DEFAULT_LOCAL_V2_ONNX
+    if not output.is_absolute():
+        output = (REPO / output).resolve()
 
     t0 = time.perf_counter()
-    weights_path = _resolve_weights(args.variant, args.weights)
-
-    print(f"Weights:  {weights_path}")
-    print(f"Output:   {output_path}")
-    print(f"Exporting to ONNX (imgsz={args.imgsz}, opset={args.opset}, dynamic={args.dynamic}, half={args.half})...")
+    print(f"Weights:  {weights}")
+    print(f"Output:   {output}")
+    print(
+        f"Exporting to ONNX (imgsz={imgsz}, opset={opset}, dynamic={dynamic}, half={half})..."
+    )
 
     t_export = time.perf_counter()
     _export_onnx(
-        weights_path=weights_path,
-        output_path=output_path,
-        imgsz=args.imgsz,
-        opset=args.opset,
-        dynamic=args.dynamic,
-        half=args.half,
-        simplify=not args.no_simplify,
-        device=args.device,
+        weights_path=weights,
+        output_path=output,
+        imgsz=imgsz,
+        opset=opset,
+        dynamic=dynamic,
+        half=half,
+        simplify=simplify,
+        device=device,
     )
     print(f"Export finished in {time.perf_counter() - t_export:.1f}s")
-    print(f"ONNX exported: {output_path} ({output_path.stat().st_size / 1e6:.1f} MB)")
+    print(f"ONNX exported: {output} ({output.stat().st_size / 1e6:.1f} MB)")
 
-    if args.validate:
+    if validate:
         t_validate = time.perf_counter()
-        _validate_onnx(weights_path, output_path, args.imgsz)
+        _validate_onnx(weights, output, imgsz)
         print(f"Validation finished in {time.perf_counter() - t_validate:.1f}s")
 
     print(f"Total runtime: {time.perf_counter() - t0:.1f}s")
+    return output
 
-
-if __name__ == "__main__":
-    main()
+# %%

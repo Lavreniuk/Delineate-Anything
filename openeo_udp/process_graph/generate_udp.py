@@ -1,8 +1,19 @@
 #%%
-"""Generate Delineate-Anything UDP JSON and optionally register it.
 
-Edit the constants below, then run:
-    python openeo_udp/process_graph/generate_udp.py
+"""Generate a UDP JSON for the full Delineate-Anything workflow.
+
+The UDP wraps :func:`build_delineate_onnx` (BAP composite + apply_neighborhood
+with the ONNX UDF) and exposes two runtime parameters:
+
+- ``geometry`` (GeoJSON geometry)
+- ``temporal_extent`` (``[start, end]`` ISO date strings)
+
+Run the generated JSON on a backend with::
+
+    conn.datacube_from_json(
+        "openeo_udp/process_graph/delineate_anything_udp.json",
+        parameters={"geometry": geom, "temporal_extent": ["2024-05-01", "2024-08-31"]},
+    )
 """
 
 from __future__ import annotations
@@ -11,36 +22,37 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 import openeo
 from openeo.api.process import Parameter
-from openeo.rest.udp import build_process_dict
 
-from openeo_udp.process_graph.delineate_onnx import (
-    DEFAULT_JOB_OPTIONS,
-    build_delineate_full,
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from openeo_udp.tests.test_udf_cdse import (  # noqa: E402
+    DEFAULT_WEIGHTS_URL,
+    build_delineate_onnx,
 )
 
-# ---- edit here -------------------------------------------------------------
-BACKEND = "https://openeo.dataspace.copernicus.eu"
-PROCESS_ID = "delineate_anything"
-OUTPUT_JSON = Path(__file__).resolve().parent / "delineate_anything_udp.json"
-REGISTER = True
-# ---------------------------------------------------------------------------
+DEFAULT_PROCESS_ID = "delineate_anything"
+DEFAULT_BACKEND = "https://openeo.dataspace.copernicus.eu"
+OUTPUT_PATH = Path(__file__).with_name(f"{DEFAULT_PROCESS_ID}_udp.json")
 
-def main() -> None:
-    conn = openeo.connect(BACKEND)
-    conn.authenticate_oidc()
 
-    spatial_extent = Parameter(
-        name="spatial_extent",
-        description="GeoJSON geometry (Polygon) defining the area of interest.",
-        schema={"type": "object"},
+def build_udp(
+    *,
+    process_id: str = DEFAULT_PROCESS_ID,
+    backend: str = DEFAULT_BACKEND,
+    weights_url: str = DEFAULT_WEIGHTS_URL,
+) -> dict:
+    """Build a UDP dict wrapping the Delineate-Anything workflow."""
+    geometry = Parameter.geojson(
+        name="geometry",
+        description="GeoJSON geometry defining the area of interest.",
     )
     temporal_extent = Parameter(
         name="temporal_extent",
-        description="Date range [start, end] (ISO-8601).",
+        description="Temporal interval as [start, end] ISO-8601 date strings.",
         schema={
             "type": "array",
             "items": {"type": "string"},
@@ -48,87 +60,36 @@ def main() -> None:
             "maxItems": 2,
         },
     )
-    processing_options = Parameter(
-        name="processing_options",
-        description=(
-            "Optional processing options passed to UDF context. "
-            "Supported keys: confidence_threshold, mask_threshold, min_area_px, min_hole_area_px."
-        ),
-        schema={"type": "object"},
-        default={
-            "confidence_threshold": 0.15,
-            "mask_threshold": 0.2,
-            "min_area_px": 10,
-            "min_hole_area_px": 10,
-        },
-    )
-    max_cloud_cover = Parameter(
-        name="max_cloud_cover",
-        description="Maximum cloud cover percentage for BAP input scenes.",
-        schema={"type": "integer"},
-        default=75,
-    )
 
-    cube = build_delineate_full(
+    conn = openeo.connect(backend)
+    cube = build_delineate_onnx(
         connection=conn,
-        spatial_extent=spatial_extent,
+        geometry=geometry,
         temporal_extent=temporal_extent,
-        max_cloud_cover=max_cloud_cover,
-        processing_options=processing_options,
+        weights_url=weights_url,
     )
 
-    process_kwargs = dict(
-        process_graph=cube,
-        process_id=PROCESS_ID,
-        summary="Delineate-Anything field boundary detection (ONNX)",
-        description=(
-            "BAP RGB composite → YOLO-seg ONNX inference → post-processing. "
-            "Returns 3 bands: mask_probability (float), binary_mask (0/1), "
-            "instances (integer field labels)."
+    return {
+        "id": process_id,
+        "summary": "Delineate field boundaries from Sentinel-2 imagery.",
+        "description": (
+            "Runs the Delineate-Anything ONNX model on a BAP RGB composite for the "
+            "given geometry and temporal extent."
         ),
-        parameters=[
-            spatial_extent,
-            temporal_extent,
-            processing_options,
-            max_cloud_cover,
-        ],
-    )
+        "parameters": [geometry.to_dict(), temporal_extent.to_dict()],
+        "process_graph": cube.flat_graph(),
+    }
 
-    # Older openEO client versions don't support default_job_options
-    # in build_process_dict().
-    try:
-        udp = build_process_dict(
-            **process_kwargs,
-            default_job_options=DEFAULT_JOB_OPTIONS,
-        )
-    except TypeError:
-        udp = build_process_dict(**process_kwargs)
-        udp["default_job_options"] = DEFAULT_JOB_OPTIONS
 
-    OUTPUT_JSON.write_text(json.dumps(udp, indent=2), encoding="utf-8")
-    print(f"Wrote {OUTPUT_JSON}")
+def write_udp(output_path: Path = OUTPUT_PATH, **kwargs) -> Path:
+    output_path.write_text(json.dumps(build_udp(**kwargs), indent=2), encoding="utf-8")
+    return output_path
 
-    if REGISTER:
-        save_kwargs = dict(
-            user_defined_process_id=PROCESS_ID,
-            process_graph=udp["process_graph"],
-            parameters=udp.get("parameters", []),
-            summary=udp.get("summary"),
-            description=udp.get("description"),
-        )
-        # Persist default job options in the registered UDP when supported
-        # by the installed openEO client version.
-        try:
-            conn.save_user_defined_process(
-                **save_kwargs,
-                default_job_options=udp.get("default_job_options"),
-            )
-        except TypeError:
-            conn.save_user_defined_process(**save_kwargs)
-        print(f"Registered UDP: {PROCESS_ID}")
 
 
 if __name__ == "__main__":
-    main()
+    written = write_udp()
+    print(f"Wrote UDP to {written}")
+
 
 # %%
