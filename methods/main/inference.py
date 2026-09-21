@@ -72,6 +72,9 @@ def execute(model_paths, config, verbose):
         logger.error(f"Incompatible tiff files. Ensure the same projection and pixel size fo each file in the folder.")
         return
 
+    # analyser normalizes a scalar nodata_value into a per-band list; keep the loader in sync.
+    config["data_loader"]["nodata_value"] = analyser.nodata_value
+
     logger.info("Estimating normalization bounds...")
     analyser.calcNormalizationBounds()
 

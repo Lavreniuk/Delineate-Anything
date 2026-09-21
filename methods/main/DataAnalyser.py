@@ -14,6 +14,10 @@ class DataAnalyser:
         self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
         self.min = norm_min
         self.max = norm_max
+        # accept either a single value or a per-band list/tuple/array; normalize
+        # here so downstream code never has to special-case the scalar form.
+        if nodata_value is not None and not isinstance(nodata_value, (list, tuple, np.ndarray)):
+            nodata_value = [nodata_value] * len(bands)
         self.nodata_value = nodata_value
 
         self._check_nodata_metadata()
@@ -27,10 +31,7 @@ class DataAnalyser:
             for band_index in self.bands:
                 band = ds.GetRasterBand(band_index)
                 metadata_nodata = band.GetNoDataValue()
-                if isinstance(self.nodata_value, (list, tuple, np.ndarray)):
-                    configured = self.nodata_value[self.bands.index(band_index)]
-                else:
-                    configured = self.nodata_value
+                configured = self.nodata_value[self.bands.index(band_index)] if self.nodata_value is not None else None
                 self._warn_if_nodata_mismatch(file, band_index, metadata_nodata, configured)
 
             ds = None
@@ -40,10 +41,7 @@ class DataAnalyser:
         if metadata_value is None and configured_value is None:
             return
 
-        if isinstance(configured_value, (list, tuple, np.ndarray)):
-            positional = configured_value[band_index - 1] if band_index - 1 < len(configured_value) else configured_value[-1]
-        else:
-            positional = configured_value
+        positional = configured_value
 
         if isinstance(metadata_value, np.ndarray):
             metadata_value = metadata_value.item() if metadata_value.size == 1 else metadata_value[0]

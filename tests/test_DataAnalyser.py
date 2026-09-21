@@ -7,11 +7,15 @@ from methods.main.DataAnalyser import DataAnalyser
 gdal.UseExceptions()
 
 @pytest.mark.parametrize(
-    ("nodata_value", "expected_max"),
-    [(None, 65535), ([65535], 3)],
-    ids=["without_nodata_value", "with_nodata_value"],
+    ("nodata_value", "expected_max", "expected_nodata_value"),
+    [
+        (None, 65535, None),
+        ([65535], 3, [65535]),
+        (65535, 3, [65535]),
+    ],
+    ids=["without_nodata_value", "with_nodata_value_list", "with_nodata_value_scalar"],
 )
-def test_normalization_nodata_value(tmp_path, nodata_value, expected_max):
+def test_normalization_nodata_value(tmp_path, nodata_value, expected_max, expected_nodata_value):
     # Prepare test data
     path = str(tmp_path / "input.tif")
     driver = gdal.GetDriverByName("GTiff")
@@ -34,6 +38,11 @@ def test_normalization_nodata_value(tmp_path, nodata_value, expected_max):
         norm_max=None,
         nodata_value=nodata_value,
     )
+
+    # a scalar nodata_value is broadcast to one entry per band, so downstream
+    # code can always index it without special-casing the scalar form
+    assert analyser.nodata_value == expected_nodata_value
+
     analyser.calcNormalizationBounds()
 
     if nodata_value is None:
