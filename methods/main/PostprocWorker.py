@@ -1,3 +1,5 @@
+# Author: Yevhenii Salii (https://github.com/15Litrov)
+
 import numpy as np
 import cv2
 from math import ceil
