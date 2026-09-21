@@ -44,32 +44,29 @@ class UnitedWorker(multiprocessing.Process):
         weight_shape = None
         postproc_config = None
         while True:
-            while not self.queue.empty():
-                arg = self.queue.get()
-
-                if arg == UnitedWorker.MODE_TERMINATE:
-                    self.shm_instances.close()
-                    self.shm_weights.close()
-                    return
-                
-                mode = arg[0]
-                if mode == UnitedWorker.MODE_POSTPROC:
-                    _, args_1, args_2 = arg
-                    model_results, nodata, bounds, id_counter = args_1
-
-                    entries = PostprocWorker.first_wave_postprocessing(model_results, nodata, bounds, id_counter, 2)
-                    inner_queue.append(entries)
-
-                    instances_shape, weight_shape, postproc_config = args_2
-
-                if mode == UnitedWorker.MODE_VECTORIZE:
-                    _, vectorize_arg = arg
-                    PolygonizationWorker.polygonize(self.result_queue, self.shm_instances, self.raster_shape, vectorize_arg, self.poly_config, self.srs_wkt, self.region_begin, self.region_end)
-                    self.result_queue.put(None)
-
-            # mode == UnitedWorker.MODE_POSTPROC
-            if len(inner_queue) > 0:
+            if inner_queue:
                 entries = inner_queue.pop(0)
                 local_mapping_dict = {}
                 PostprocWorker.process_fields(entries, local_mapping_dict, self.area_dict, (self.shm_instances, instances_shape), (self.shm_weights, weight_shape), postproc_config)
                 self.result_queue.put((self.id, local_mapping_dict))
+                continue
+
+            arg = self.queue.get()
+
+            if arg == UnitedWorker.MODE_TERMINATE:
+                self.shm_instances.close()
+                self.shm_weights.close()
+                return
+
+            mode = arg[0]
+            if mode == UnitedWorker.MODE_POSTPROC:
+                _, args_1, args_2 = arg
+                model_results, nodata, bounds, id_counter = args_1
+
+                entries = PostprocWorker.first_wave_postprocessing(model_results, nodata, bounds, id_counter, 2)
+                inner_queue.append(entries)
+                instances_shape, weight_shape, postproc_config = args_2
+            elif mode == UnitedWorker.MODE_VECTORIZE:
+                _, vectorize_arg = arg
+                PolygonizationWorker.polygonize(self.result_queue, self.shm_instances, self.raster_shape, vectorize_arg, self.poly_config, self.srs_wkt, self.region_begin, self.region_end)
+                self.result_queue.put(None)
