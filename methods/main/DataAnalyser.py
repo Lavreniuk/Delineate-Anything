@@ -4,13 +4,18 @@ import math
 from tqdm import tqdm
 
 class DataAnalyser:
-    def __init__(self, tiffs, bands, sr, norm_min, norm_max):
+    # rasters larger than this (per side) are sampled on a regular grid when estimating percentiles
+    MAX_SAMPLE_SIDE = 4096
+
+    def __init__(self, tiffs, bands, sr, norm_min, norm_max, nodata_band=None, nodata_value=None):
         self.tiffs = tiffs
         self.bands = bands
         self.sr = sr
         self.area_coeff = self.evaluate_pixel_size(self.tiffs[0])[2]
         self.min = norm_min
         self.max = norm_max
+        self.nodata_band = nodata_band
+        self.nodata_value = nodata_value
 
     def calcNormalizationBounds(self):
         def calculate_percentiles(data, percentiles=(1, 99)):
@@ -26,23 +31,48 @@ class DataAnalyser:
 
         for file in tqdm(self.tiffs):
             ds = gdal.Open(file, gdal.GA_ReadOnly)
-            
-            for i in range(len(BANDS)):
-                rb = ds.GetRasterBand(BANDS[i])
-                if rb.DataType == gdal.GDT_Byte:
-                    self.min = [0 for _ in BANDS]
-                    self.max = [255 for _ in BANDS]
-                    ds = None
-                    return
 
-                data = rb.ReadAsArray()
-                z = data[data > 0]
+            if ds.GetRasterBand(BANDS[0]).DataType == gdal.GDT_Byte:
+                self.min = [0 for _ in BANDS]
+                self.max = [255 for _ in BANDS]
+                ds = None
+                return
+
+            # same (nearest) sampling grid for every band, so per-pixel nodata masks stay aligned
+            scale = max(ds.RasterXSize, ds.RasterYSize) / DataAnalyser.MAX_SAMPLE_SIDE
+            buf_x = ds.RasterXSize if scale <= 1 else max(1, int(ds.RasterXSize / scale))
+            buf_y = ds.RasterYSize if scale <= 1 else max(1, int(ds.RasterYSize / scale))
+
+            def read(band_index):
+                return ds.GetRasterBand(band_index).ReadAsArray(buf_xsize=buf_x, buf_ysize=buf_y)
+
+            bands_data = [read(b) for b in BANDS]
+
+            # same nodata definition as DataLoaderCached
+            valid = np.ones((buf_y, buf_x), dtype=bool)
+            if self.nodata_band is not None:
+                if self.nodata_value is not None:
+                    valid &= read(self.nodata_band) != self.nodata_value
+            elif self.nodata_value is not None:
+                is_nodata = np.ones((buf_y, buf_x), dtype=bool)
+                for i in range(len(BANDS)):
+                    is_nodata &= bands_data[i] == self.nodata_value[i]
+                valid &= ~is_nodata
+
+            for i in range(len(BANDS)):
+                data = bands_data[i]
+                z = data[valid & (data > 0)]
+                if z.size == 0:
+                    continue
                 p1, p99 = calculate_percentiles(z)
 
                 self.min[i].append(p1)
                 self.max[i].append(p99)
             
             ds = None
+
+        if any(len(self.min[i]) == 0 for i in range(len(BANDS))):
+            raise ValueError("No valid pixels found for normalization. Check nodata_value / nodata_band in the config.")
 
         self.min = [np.mean(self.min[i]) for i in range(len(BANDS))]
         self.max = [np.mean(self.max[i]) for i in range(len(BANDS))]

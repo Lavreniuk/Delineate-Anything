@@ -102,6 +102,8 @@ class PostprocHandler:
     def clear(self):
         self.instances_map[:, :] = 0
         self.weights_map[:, :] = 0
+        # ids are globally unique and never reused by later regions
+        self.area_dict.clear()
 
     def update_id_mapper(self, local_mapping_dict):
         for key, val in local_mapping_dict.items():
@@ -168,27 +170,17 @@ class PostprocHandler:
         mask = self.instances_map < 2
         self.instances_map[mask] = -background[mask]
 
-    def polygonize(self, geotransform, layer_info):
+    def polygonize(self, base_geotransform, region_offset, layer_info):
         t0 = time.time()
         gpkg_path, layer_name = layer_info
 
         workers_in_flight = 0
-        di = self.instances_map.shape[0] // self.num_workers_grid[0]
-        dj = self.instances_map.shape[1] // self.num_workers_grid[1]
-        # setup and start polygonization workers
+        # setup and start polygonization workers; each worker shifts its pixel geometry by an exact
+        # integer offset and applies the same global geotransform, so shared edges get identical coordinates
         for i in range(self.num_workers_grid[0]):
             for j in range(self.num_workers_grid[1]):
-                local_gt = (
-                    geotransform[0] + geotransform[1] * (j * dj),
-                    geotransform[1],
-                    0,
-                    geotransform[3] + geotransform[5] * (i * di),
-                    0,
-                    geotransform[5]
-                )
-
                 worker = self.workers_grid[i][j]
-                worker.queue.put((UnitedWorker.MODE_VECTORIZE, local_gt))
+                worker.queue.put((UnitedWorker.MODE_VECTORIZE, (base_geotransform, tuple(region_offset))))
                 workers_in_flight += 1
 
 
@@ -201,25 +193,21 @@ class PostprocHandler:
         feature = ogr.Feature(layer_defn)
         try:
             while workers_in_flight > 0:
-                if self.result_queue.empty():
-                    time.sleep(0.01)
+                result = self.result_queue.get()
+                if result is None:
+                    workers_in_flight -= 1
+                    continue
 
-                while not self.result_queue.empty():
-                    result = self.result_queue.get()
-                    if result == None:
-                        workers_in_flight -= 1
-                        continue
+                wkb, area, geom_id, isBackground = result
+                geom = ogr.CreateGeometryFromWkb(wkb)
 
-                    wkb, area, geom_id, isBackground = result
-                    geom = ogr.CreateGeometryFromWkb(wkb)
-                
-                    feature.SetFID(-1)
-                    feature.SetGeometry(geom)
-                    feature.SetField("id", geom_id)
-                    feature.SetField("bg", isBackground)
-                    feature.SetField("area", float(area))
+                feature.SetFID(-1)
+                feature.SetGeometry(geom)
+                feature.SetField("id", geom_id)
+                feature.SetField("bg", isBackground)
+                feature.SetField("area", float(area))
 
-                    out_layer.CreateFeature(feature)
+                out_layer.CreateFeature(feature)
 
             out_layer.CommitTransaction()
         except Exception as e:

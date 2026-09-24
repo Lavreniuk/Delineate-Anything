@@ -163,12 +163,18 @@ class DataLoaderCached:
 
             self.image_cache[y_begin:y_end, x_begin:x_end, i] = np.clip(255 * ((value - self.min[i]) / (self.max[i] - self.min[i])), 0, 255).astype("uint8")
             if self.nodata_band is None:
-                self.image_cache[y_begin:y_end, x_begin:x_end, -2] &= (value == self.nodata_value[i])
+                if self.nodata_value is None:
+                    self.image_cache[y_begin:y_end, x_begin:x_end, -2] = 0
+                else:
+                    self.image_cache[y_begin:y_end, x_begin:x_end, -2] &= (value == self.nodata_value[i])
 
         if self.nodata_band is not None:
-            ds_band = ds.GetRasterBand(self.nodata_band)
-            value = ds_band.ReadAsArray(max(0, begin_offset[0]), max(0, begin_offset[1]), x_end - x_begin, y_end - y_begin)
-            self.image_cache[y_begin:y_end, x_begin:x_end, -2] = (value == self.nodata_value)
+            if self.nodata_value is None:
+                self.image_cache[y_begin:y_end, x_begin:x_end, -2] = 0
+            else:
+                ds_band = ds.GetRasterBand(self.nodata_band)
+                value = ds_band.ReadAsArray(max(0, begin_offset[0]), max(0, begin_offset[1]), x_end - x_begin, y_end - y_begin)
+                self.image_cache[y_begin:y_end, x_begin:x_end, -2] = (value == self.nodata_value)
 
         ds = None
 

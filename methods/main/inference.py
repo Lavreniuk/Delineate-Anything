@@ -59,7 +59,7 @@ def execute(model_paths, config, verbose):
     create_output_folder(temp_folder)
     create_output_folder(os.path.dirname(output_path))
 
-    tiffs = [os.path.join(src_folder, file) for file in os.listdir(src_folder) if (file.endswith(".tif") or file.endswith(".tiff"))]
+    tiffs = [os.path.join(src_folder, file) for file in sorted(os.listdir(src_folder)) if (file.endswith(".tif") or file.endswith(".tiff"))]
     if config["treat_as_vrt"]:
         vrt_path = os.path.join(temp_folder, os.path.basename(src_folder) + ".vrt")
         gdal.BuildVRT(vrt_path, tiffs)
@@ -67,7 +67,10 @@ def execute(model_paths, config, verbose):
 
     logger.info(tiffs)
 
-    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"], config["data_loader"]["min"], config["data_loader"]["max"])
+    normalize_nodata_config(config["data_loader"])
+
+    analyser = DataAnalyser(tiffs, config["data_loader"]["bands"], config["super_resolution"], config["data_loader"]["min"], config["data_loader"]["max"],
+                            config["data_loader"]["nodata_band"], config["data_loader"]["nodata_value"])
     if not analyser.isCompatible():
         logger.error(f"Incompatible tiff files. Ensure the same projection and pixel size fo each file in the folder.")
         return
@@ -201,6 +204,27 @@ def execute(model_paths, config, verbose):
         execute_simplification(gpkg_path, layer_name, config["simplification_args"], analyser.scale)
         logger.info(f"Simplification finished in {time.time() - start:.2f} seconds")
 
+def normalize_nodata_config(loader_config):
+    # nodata_band set   -> nodata_value is a single scalar compared against that band
+    # nodata_band null  -> nodata_value is a per-band list (a pixel is nodata if all bands match), or None
+    nodata_band = loader_config.get("nodata_band")
+    nodata_value = loader_config.get("nodata_value")
+    num_bands = len(loader_config["bands"])
+
+    if nodata_band is not None:
+        if isinstance(nodata_value, (list, tuple)):
+            if len(set(nodata_value)) != 1:
+                raise ValueError("nodata_value must be a single value when nodata_band is set.")
+            nodata_value = nodata_value[0]
+    elif nodata_value is not None and not isinstance(nodata_value, (list, tuple)):
+        nodata_value = [nodata_value] * num_bands
+
+    if nodata_band is None and nodata_value is not None and len(nodata_value) != num_bands:
+        raise ValueError(f"nodata_value must have {num_bands} values (one per band).")
+
+    loader_config["nodata_band"] = nodata_band
+    loader_config["nodata_value"] = nodata_value
+
 def execute_simplification(gpkg_path, layer_name, config, scale):
     full_config = {
         "src": gpkg_path,
@@ -326,7 +350,7 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
             background = background_loader.get_background(planner.get_geotransform(), planner.region_size[0], planner.region_size[1], srs_wkt)
             postproc_handler.apply_background(background)
 
-            postproc_handler.polygonize(planner.get_geotransform(), layer_info)
+            postproc_handler.polygonize(planner.get_base_geotransform(), planner.current_region, layer_info)
             postproc_handler.clear()
 
             region_counter += 1
@@ -365,6 +389,8 @@ def postdelineation_merge(layer_info, filter_config):
 
         for feature in tqdm(layer, desc="Filtering", unit="poly"):
             fid = feature.GetFID()
+            # ids of merged fields are allocated above every existing fid, so they can't collide with kept fields (id = fid)
+            max_id = max(max_id, fid)
             id = feature.GetField("id")
             bg = int(feature.GetField("bg"))
             if id > 0:
@@ -379,7 +405,6 @@ def postdelineation_merge(layer_info, filter_config):
             else:
                 field_parts[(id, bg)] = [orig_geom]
 
-            max_id = max(max_id, fid)
             features_to_delete.append(fid)
                 
         # delete useless features
@@ -391,14 +416,23 @@ def postdelineation_merge(layer_info, filter_config):
         for key in tqdm(field_parts.keys(), desc="Merging", unit="poly"):
             id, bg = key
             cleaned_geoms = [g.Buffer(0) for g in field_parts[key] if g and not g.IsEmpty()]
+            cleaned_geoms = [g for g in cleaned_geoms if g and not g.IsEmpty()]
             if not cleaned_geoms:
                 logger.debug(f"Skipping id={id}: no valid geometries after cleaning")
                 continue
 
-            # Perform manual union (pairwise)
-            merged = cleaned_geoms[0]
-            for g in cleaned_geoms[1:]:
-                merged = merged.Union(g)
+            if len(cleaned_geoms) == 1:
+                merged = cleaned_geoms[0]
+            else:
+                # one cascaded union instead of pairwise unions
+                collection = ogr.Geometry(ogr.wkbMultiPolygon)
+                for g in cleaned_geoms:
+                    if g.GetGeometryType() == ogr.wkbPolygon:
+                        collection.AddGeometry(g)
+                    else:
+                        for i in range(g.GetGeometryCount()):
+                            collection.AddGeometry(g.GetGeometryRef(i))
+                merged = collection.UnionCascaded()
 
             if merged is None or merged.IsEmpty():
                 logger.debug(f"Skipping id={id}: union failed or returned empty")

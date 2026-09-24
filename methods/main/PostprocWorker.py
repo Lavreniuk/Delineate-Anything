@@ -143,6 +143,7 @@ class PostprocWorker:
                     id_area[key_id] -= area_inter
 
         instances[:, :] = 0
+        local_area_dict = {}
         for index in order_b2s:
             id = write_id[index]
             if id == 0:
@@ -158,9 +159,13 @@ class PostprocWorker:
             instances[min_y:max_y, min_x:max_x][field] = id
             weights[min_y:max_y, min_x:max_x][field] = 1.0 / area
 
-            area_dict[id] = area
-            area_dict[id | 1] = area
+            local_area_dict[int(id)] = area
+            local_area_dict[int(id) | 1] = area
             mapping_dict[id | 1] = [int(id)]
+
+        # one IPC call instead of two per field
+        if local_area_dict:
+            area_dict.update(local_area_dict)
         # end compose
 
         instances[:MERGING_EDGE_WIDTH, :] |= 1
@@ -182,7 +187,7 @@ class PostprocWorker:
         in_py_begin = posY_begin - inregion_by
         in_py_end = posY_end - inregion_by
 
-        if posX_begin >= posX_end or posY_begin > posY_end:
+        if posX_begin >= posX_end or posY_begin >= posY_end:
             print(f"WARNING. Innatural ranges: X {posX_begin} {posX_end} Y {posY_begin} {posY_end}. Tile skipped")
             return
 
@@ -190,7 +195,8 @@ class PostprocWorker:
         old_weights = dst_weigths[posY_begin:posY_end, posX_begin:posX_end]
 
         # # merge fields
-        PostprocWorker.find_edge_mapping(old_instances, instances[in_py_begin:in_py_end, in_px_begin:in_px_end], mapping_dict, area_dict, 
+        PostprocWorker.find_edge_mapping(old_instances, instances[in_py_begin:in_py_end, in_px_begin:in_px_end], mapping_dict, 
+                        PostprocWorker.CachedAreaLookup(local_area_dict, area_dict),
                         MERGE_IOU, MERGE_EDGE_IOU, MERGE_EDGE_PIXELS,
                         MERGE_RELATIVE_AREA_THRESHOLD, MERGE_ASYMETRIC_MERGING_PIXEL_AREA_THRESHOLD, MERGE_ASYMETRYC_MERGING_RELATIVE_AREA_THRESHOLD)
         # # end merge
@@ -199,6 +205,18 @@ class PostprocWorker:
 
         old_instances[write_mask] = instances[in_py_begin:in_py_end, in_px_begin:in_px_end][write_mask]
         old_weights[write_mask] = weights[in_py_begin:in_py_end, in_px_begin:in_px_end][write_mask]
+
+    class CachedAreaLookup:
+        # areas of this tile's fields are known locally; areas of already written fields are fetched
+        # from the shared dict once per id instead of once per intersecting pair
+        def __init__(self, local_dict, shared_dict):
+            self.cache = dict(local_dict)
+            self.shared_dict = shared_dict
+
+        def __getitem__(self, key):
+            if key not in self.cache:
+                self.cache[key] = self.shared_dict[key]
+            return self.cache[key]
 
     @staticmethod
     def find_edge_mapping(current, new, dst, area_dict, merge_iou, 

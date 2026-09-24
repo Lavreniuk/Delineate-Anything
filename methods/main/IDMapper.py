@@ -34,8 +34,8 @@ class IncrementalFastMapper:
     def union(self, ids):
         # Convert to roots
         roots = set(self.find(u) for u in ids)
-        if len(roots) < 1:
-            return  # All already connected
+        if len(roots) <= 1:
+            return  # All already connected (find() already compressed the paths)
 
         rmin = min(roots)
         for r in roots:
