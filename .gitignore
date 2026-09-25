@@ -21,6 +21,9 @@ __pycache__/
 *.pt
 *.pth
 *.pkl
+!tests/testcases/**/*.tif
+!tests/testcases/**/*.gpkg
+!tests/testcases/**/*.yaml
 
 # C extensions
 *.so

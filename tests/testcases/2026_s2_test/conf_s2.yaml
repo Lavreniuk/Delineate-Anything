@@ -1,0 +1,100 @@
+model: ["large_v2"] # Model names: "small", "large" or "large_v2". Can be a list.
+method: main # Name of the method subfolder in 'methods'.
+
+execution_args:
+  src_folder: ""
+  temp_folder: ""
+  output_path: ""
+  keep_temp: false
+  mask_filepath: null
+
+# Image scaling factor. Null means auto (1 for <5m, 2 for >=5m resolution). Use powers of 2 only (1, 2, 4, etc.). Uses cubic interpolation.
+super_resolution: null
+
+# Treat images as part of 1 image instead of separate
+treat_as_vrt: false
+
+mask_info:
+  range: 40               # Number of classes in the mask, or null if it includes negative values
+  filter_classes: [1, 10, 11, 12, 23]  # Classes used to remove whole polygons on overlap
+  clip_classes: [0, 13, 14]        # Classes used to clip overlapping polygon areas
+
+background_info:
+  # Add these classes as the background to the delineated fields to cover regions in case of model failure
+  background_classes_from_mask: [] # something like: [2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 19, 20, 21, 27, 28, 38]
+  additional_source: null # something like: ["prev_year_delineation.gpkg", "fields"]
+
+data_loader:
+  skip: False             # True - all data is nodata; False - normal mode
+  bands: [3, 2, 1]        # Bands to use from the image (GDAL index, 1-based). For RGB use [3,2,1]
+  nodata_band: null       # Optional nodata band (GDAL index)
+  nodata_value: [65535, 65535, 65535] # Treat saturated UInt16 values as nodata
+  normalize_local: false  # if true, normalize each read image part using its own 1/99 percentile instead of the whole-image min/max
+  min: null               # Min value for normalization. null - for automatic estimation, [R, G, B] - for manual assignment
+  max: null               # Max value for normalization. null - for automatic estimation, [R, G, B] - for manual assignment
+
+
+execution_planner:
+  region_width: -1      # Width of processing region (in pixels) - -1 for automatic selection
+  region_height: -1     # Height of processing region (in pixels) - -1 for automatic selection
+  pixel_offset: [0, 0]  # Pixel shift of input data relative to output region
+
+postprocess_limits: 
+  # [Ny, Nx] - how many workers to put on each axis. Use just -1 for automatic determination - usually it would took max(N_threads // 2, 1) and distribute it between axes
+  num_workers: [2, 2]
+  queue_tiles_capacity: 32    # Eg. 32 for 64 GB RAM. Use halve for 32 GB RAM.
+  max_tiles_inflight: 64      # Eg. 64 for 64 GB RAM. Use halve for 32 GB RAM.
+  
+passes:
+  - batch_size: -1            # Number of tiles per batch. -1 for automatic selection
+    tile_size: null           # Not supported, keep null
+    tile_step: 0.5            # Tile overlap ratio
+    model_args:
+      - name: large_v2
+        minimal_confidence: 0.15
+        use_half: true        # Use FP16 inference / in case of CPU will be overwritten to false
+
+    delineation_config:
+      pixel_area_threshold: 64
+      remaining_area_threshold: 0.8
+      compose_merge_iou: 0.8
+
+      merge_iou: 0.8
+      merge_relative_area_threshold: 0.5
+      merge_asymetric_pixel_area_threshold: 32
+      merge_asymetric_relative_area_threshold: 0.7
+
+      # Prefer not to change these unless needed
+      merging_edge_width: 4
+      merge_edge_iou: 0.6
+      merge_edge_pixels: 192
+
+polygonization_args:
+  layer_name: fields
+  override_if_exists: true
+
+filtering_args:
+  # if True - automatically scale minimum_area_m2, minimum_part_area_m2, minimum_hole_area_m2 proportionally to pixel area of the input imagery
+  automatic_area_scale: false
+  minimum_area_m2: 1000
+  minimum_part_area_m2: 0
+  minimum_hole_area_m2: 1000
+
+  # fields based on lclu
+  minimum_background_field_area_m2: 50000
+  minimum_background_field_hole_area_m2: 25000
+
+  # fields from different vector layer
+  # internal use only, will be overwritten
+  middleground_offset: null
+  # free to edit
+  minimum_middleground_field_area_m2: 10000
+  minimum_middleground_field_hole_area_m2: 5000
+
+simplification_args:
+  simplify: True
+  epsilon_scale: 1
+  # how many processes spawn for the task. -1 - all available cpus
+  num_workers: -1
+  # 1 byte per pixel => 65k*65k = 4GB, 32k*32k = 1GB. Some system cant handle arrays bigger than 32k*32k due to int overflow
+  raster_resolution: -1
