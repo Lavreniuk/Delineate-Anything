@@ -37,6 +37,19 @@ class ExecutionPlanner:
             pixel_height           # n-s pixel resolution (negative value)
         )
 
+    def get_base_geotransform(self):
+        # geotransform of the global pixel grid (region [0, 0]); workers apply it after an exact integer pixel offset
+        minx, _, _, maxy = self.analyser.total_bounds
+
+        return (
+            minx,
+            self.analyser.pixel_size_x / self.analyser.scale,
+            0,
+            maxy,
+            0,
+            self.analyser.pixel_size_y / self.analyser.scale
+        )
+
     def get_num_regions(self):
         x = self.region_size_full[0] // self.region_size[0] + (1 if self.region_size_full[0] % self.region_size[0] != 0 else 0)
         y = self.region_size_full[1] // self.region_size[1] + (1 if self.region_size_full[1] % self.region_size[1] != 0 else 0)

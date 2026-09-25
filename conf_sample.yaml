@@ -8,7 +8,7 @@ execution_args:
   keep_temp: false
   mask_filepath: null
 
-# Image scaling factor. Null means auto (1 for <5m, 2 for >=5m resolution). Use powers of 2 only (1, 2, 4, etc.). Uses cubic interpolation.
+# Image scaling factor. Null means auto (1 for <4m, 2 for >=4m resolution). Use powers of 2 only (1, 2, 4, etc.). Uses cubic interpolation.
 super_resolution: null
 
 # Treat images as part of 1 image instead of separate

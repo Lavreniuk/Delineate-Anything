@@ -48,7 +48,7 @@ Adjust based on system RAM. For 64Gb of RAM you could set:
 Tune based on CPU cores and RAM.
 
     postprocess_limits:
-      num_workers: [4, 4]           # Number of postprocessing and polygonization workers (X and Y axes). 
+      num_workers: [4, 4]           # Number of postprocessing and polygonization workers as [Ny, Nx] (Y and X axes). 
                                     # Product should be LESS than total CPU threads. Like [a, b] where a*b = cpu_count - 4.
       queue_tiles_capacity: 32      # Example for 64 GB RAM. Use halve for 32 GB RAM.
       max_tiles_inflight: 64        # Example for 64 GB RAM. Use halve for 32 GB RAM.

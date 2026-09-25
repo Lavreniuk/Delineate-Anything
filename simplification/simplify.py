@@ -23,6 +23,7 @@ from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 import math
+import shapely
 from tqdm import tqdm
 
 import time
@@ -144,30 +145,37 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         worker.started_event.wait()
 
     while True:
-        incidence_np[:, :] = 0
         block_extent = [minx, maxx, miny, maxy]
+        # a tile without features produces nothing: skip clearing the incidence buffer and both passes
+        layer.SetSpatialFilterRect(minx, miny, maxx, maxy)
+        layer.ResetReading()
+        has_features = layer.GetNextFeature() is not None
+        layer.SetSpatialFilter(None)
 
-        for worker in simplification_workers:
-            worker.individual_input_queue.put((SimplificationWorker.MODE_COUNT_VERTICES, ([minx, miny], block_extent)))
+        if has_features:
+            incidence_np[:, :] = 0
 
-        for worker in simplification_workers:
-            worker.individual_input_queue.join()
+            for worker in simplification_workers:
+                worker.individual_input_queue.put((SimplificationWorker.MODE_COUNT_VERTICES, ([minx, miny], block_extent)))
 
-        ReadWorker.read_all_features_intersect_extent(fid_column, layer, block_extent, [worker.individual_input_queue for worker in simplification_workers])
+            for worker in simplification_workers:
+                worker.individual_input_queue.join()
 
-        for worker in simplification_workers:
-            worker.individual_input_queue.put((SimplificationWorker.MODE_SIMPLIFY, ([minx, miny], block_extent)))
+            ReadWorker.read_all_features_intersect_extent(fid_column, layer, block_extent, [worker.individual_input_queue for worker in simplification_workers])
 
-        for worker in simplification_workers:
-            worker.individual_input_queue.join()
+            for worker in simplification_workers:
+                worker.individual_input_queue.put((SimplificationWorker.MODE_SIMPLIFY, ([minx, miny], block_extent)))
 
-        ReadWorker.read_all_features_intersect_extent(fid_column, layer, block_extent, [worker.individual_input_queue for worker in simplification_workers])
+            for worker in simplification_workers:
+                worker.individual_input_queue.join()
 
-        for worker in simplification_workers:
-            worker.individual_input_queue.put((SimplificationWorker.MODE_WAIT, None))
+            ReadWorker.read_all_features_intersect_extent(fid_column, layer, block_extent, [worker.individual_input_queue for worker in simplification_workers])
 
-        for worker in simplification_workers:
-            worker.individual_input_queue.join()
+            for worker in simplification_workers:
+                worker.individual_input_queue.put((SimplificationWorker.MODE_WAIT, None))
+
+            for worker in simplification_workers:
+                worker.individual_input_queue.join()
 
         minx += dx
         maxx = minx + width
@@ -198,6 +206,73 @@ def simplify_internal(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, densif
         worker.terminate()
 
     dissolve_inplace(dst_gpkg, dst_layer_name, fid_column)
+    resolve_overlaps(dst_gpkg, dst_layer_name)
+
+def resolve_overlaps(gpkg_path, layer_name):
+    # neighbours separated by a narrow gap don't share anchors, so their simplified boundaries can cross;
+    # the smaller field keeps the contested area (same rule as in delineation, where smaller fields win)
+    ds = ogr.Open(gpkg_path, 1)
+    layer = ds.GetLayerByName(layer_name)
+
+    fids = []
+    geoms = []
+    for feat in layer:
+        g = feat.GetGeometryRef()
+        if g is None or g.IsEmpty():
+            continue
+        fids.append(feat.GetFID())
+        geoms.append(shapely.from_wkb(bytes(g.ExportToWkb())))
+
+    if len(geoms) < 2:
+        ds = None
+        return
+
+    geoms = np.array(geoms, dtype=object)
+    areas = shapely.area(geoms)
+
+    tree = shapely.STRtree(geoms)
+    a, b = tree.query(geoms, predicate="intersects")
+    pairs = a < b
+    a, b = a[pairs], b[pairs]
+    if len(a) == 0:
+        ds = None
+        return
+
+    overlap = shapely.area(shapely.intersection(geoms[a], geoms[b]))
+    # touching neighbours give zero area; anything above float noise is a real overlap
+    real = overlap > 1e-6 * np.minimum(areas[a], areas[b])
+    a, b = a[real], b[real]
+
+    to_subtract = {}
+    for i, j in zip(a, b):
+        larger, smaller = (i, j) if areas[i] >= areas[j] else (j, i)
+        to_subtract.setdefault(larger, []).append(smaller)
+
+    target_srs = osr.SpatialReference()
+    target_srs.ImportFromEPSG(6933)
+    source_srs = layer.GetSpatialRef()
+    source_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    target_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    transform = osr.CoordinateTransformation(source_srs, target_srs)
+
+    layer.StartTransaction()
+    for larger, smaller in tqdm(to_subtract.items(), desc="Resolving overlaps"):
+        fixed = shapely.difference(geoms[larger], shapely.union_all(geoms[smaller]))
+        parts = [p for p in shapely.get_parts(fixed) if isinstance(p, shapely.Polygon) and not p.is_empty]
+        if len(parts) == 0:
+            continue
+
+        geom = ogr.CreateGeometryFromWkb(shapely.MultiPolygon(parts).wkb)
+        area_geom = geom.Clone()
+        area_geom.Transform(transform)
+
+        feat = layer.GetFeature(fids[larger])
+        feat.SetGeometry(geom)
+        feat.SetField("area", area_geom.GetArea())
+        layer.SetFeature(feat)
+    layer.CommitTransaction()
+
+    ds = None
 
 def clone_layer_schema(src_gpkg, src_layer_name, dst_gpkg, dst_layer_name, epsilon):
     driver = ogr.GetDriverByName("GPKG")
@@ -305,6 +380,8 @@ def dissolve_inplace(input_gpkg, layername, field_name):
     target_srs.ImportFromEPSG(6933)
 
     source_srs = layer.GetSpatialRef()
+    source_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    target_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     transform = osr.CoordinateTransformation(source_srs, target_srs)
 
     # Delete old entries
