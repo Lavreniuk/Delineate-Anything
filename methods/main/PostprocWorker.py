@@ -277,13 +277,10 @@ class PostprocWorker:
 
             case_1 = case_1_relative_area_merging or case_1_asymetrics_current or case_1_asymetrics_new
 
-            # A fragment almost entirely contained in the overlap is a merge candidate on its own,
-            # even when the global IoU is tiny (e.g. a small tile-edge sliver of a much larger field).
             case_0_is_edge_merging = (key_current % 2 == 1 or key_new % 2 == 1) and (iou > merge_edge_iou or area_intersect > merge_edge_pixels)
             case_0_is_iou_merging = iou > merge_iou
-            case_0_is_asymmetric_containment = case_1_asymetrics_current or case_1_asymetrics_new
 
-            case_0 = case_0_is_edge_merging or case_0_is_iou_merging or case_0_is_asymmetric_containment
+            case_0 = case_0_is_edge_merging or case_0_is_iou_merging
 
             if case_0 and case_1:
                 dst[int(key_new)] = dst.get(int(key_new), []) + [int(key_current)]
