@@ -41,24 +41,18 @@ def delineate(args, verbose):
 
     model_names =  args["config"]["model"]
     if isinstance(model_names, str):
-        model_name = model_names
+        model_names = [model_names]
+        args["config"]["model"] = model_names
+
+    model_path = []
+    for model_name in model_names:
         if model_name in models_dict:
-            model_path = hf_hub_download(repo_id=models_dict[model_name]["repo_id"], filename=models_dict[model_name]["filename"])
+            model_path.append(hf_hub_download(repo_id=models_dict[model_name]["repo_id"], filename=models_dict[model_name]["filename"]))
         else:
             if os.path.exists(model_name):
-                model_path = model_name
+                model_path.append(model_name)
             else:
                 raise ValueError(f"Unknown model '{model_name}' in configuration file.")
-    else:
-        model_path = []
-        for model_name in model_names:
-            if model_name in models_dict:
-                model_path.append(hf_hub_download(repo_id=models_dict[model_name]["repo_id"], filename=models_dict[model_name]["filename"]))
-            else:
-                if os.path.exists(model_name):
-                    model_path.append(model_name)
-                else:
-                    raise ValueError(f"Unknown model '{model_name}' in configuration file.")
 
     # loading delineation method
     method = args["config"]["method"]
@@ -130,7 +124,7 @@ def batch_routine(args):
 
             # load overrided config file
             if "config" in override:
-                config = yaml.safe_load(Path(override["config"].read_text()))
+                config = yaml.safe_load(Path(override["config"]).read_text())
 
             # make changes to currently used config file
             if "config_override" in override and override["config_override"]:

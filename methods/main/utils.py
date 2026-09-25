@@ -32,6 +32,8 @@ def create_geopackage_with_same_projection(dst_path, layer_name, projection, ove
 
     layer = gpkg_ds.CreateLayer(layer_name, srs=spatial_ref, geom_type=ogr.wkbPolygon)
     layer.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
-    layer.CreateField(ogr.FieldDefn("bg", ogr.OFSTBoolean))
+    bg_field = ogr.FieldDefn("bg", ogr.OFTInteger)
+    bg_field.SetSubType(ogr.OFSTBoolean)
+    layer.CreateField(bg_field)
     layer.CreateField(ogr.FieldDefn("area", ogr.OFTReal))
     return dst_path, layer_name

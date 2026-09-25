@@ -4,8 +4,10 @@
 <a href='https://arxiv.org/abs/2511.13417'><img src='https://img.shields.io/badge/Paper-DelAnyFlow-red'></a>
 <a href='https://arxiv.org/abs/2607.19069'><img src='https://img.shields.io/badge/Paper-DelAny v2-red'></a>
 <a href='https://explorer.delineate-anything.apex.esa.int/'><img src='https://img.shields.io/badge/Map-Explorer-blue'></a>
-<a href='https://huggingface.co/datasets/MykolaL/FBIS-22M'><img src='https://img.shields.io/badge/Dataset-HuggingFace-DA0000'></a>
-<a href='https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing'><img src='https://img.shields.io/badge/Colab-Demo-F9AB00'></a>
+<a href='https://huggingface.co/datasets/MykolaL/FBIS-73M'><img src='https://img.shields.io/badge/Dataset-9B59B6'></a>
+<a href='https://huggingface.co/spaces/hugging-apps/delineate-anything-v2'><img src='https://img.shields.io/badge/Demo-HuggingFace-FFD21E'></a>
+<a href='https://colab.research.google.com/drive/10KSLwYDTgU-WhpqqG39yyvB6K8MdB0X9?usp=sharing'><img src='https://img.shields.io/badge/Demo-Colab-F9AB00'></a>
+
 
 <p align="center">
   <img src="figs/logo.jpg" alt="intro" width="448"/>

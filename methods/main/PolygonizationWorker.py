@@ -1,6 +1,7 @@
 from rasterio import features
 from shapely.geometry import shape
 from shapely.affinity import affine_transform as shapely_affine_transform
+from shapely.affinity import translate as shapely_translate
 from shapely.geometry import shape, box
 from affine import Affine
 
@@ -10,7 +11,12 @@ import numpy as np
 
 class PolygonizationWorker:
     @staticmethod
-    def polygonize(queue, shm_instances, raster_shape, geotransform, config, srs_wkt, region_begin, region_end):
+    def polygonize(queue, shm_instances, raster_shape, vectorize_arg, config, srs_wkt, region_begin, region_end):
+        # geotransform is the global pixel grid; region_offset is the region position in that grid (x, y)
+        geotransform, region_offset = vectorize_arg
+        offset_x = int(region_offset[0] + region_begin[1])
+        offset_y = int(region_offset[1] + region_begin[0])
+
         instances = np.ndarray(shape=raster_shape, dtype=np.int32, buffer=shm_instances.buf)
 
         array = instances[region_begin[0]:region_end[0], region_begin[1]:region_end[1]]
@@ -55,8 +61,8 @@ class PolygonizationWorker:
             poly_bbox = box(*geom.bounds)
             touches_edge = poly_bbox.intersects(image_bbox.boundary)
 
-            # converting it to dst crs
-            geom_geo = shapely_affine_transform(geom, shapely_params)
+            # converting it to dst crs: exact integer shift into the global pixel grid first, then one shared affine
+            geom_geo = shapely_affine_transform(shapely_translate(geom, offset_x, offset_y), shapely_params)
             if geom_geo.is_empty or not geom_geo.is_valid:
                 continue
 
