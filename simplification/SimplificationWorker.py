@@ -133,10 +133,9 @@ class SimplificationWorker(multiprocessing.Process):
         if geom is None:
             return
 
-        # Explicitly force OGC standard orientation: Outer = CCW, Holes = CW
-        oriented_geom = ogr.ForceToPolygon(geom)
-        # if oriented_geom is None:
-        #     oriented_geom = geom # Fallback if forcing fails
+        # shell and holes get opposite, fixed orientations, so an edge shared by two polygons is always
+        # traversed in opposite directions and scores 2 in the incidence map
+        oriented_geom = SimplificationWorker.orient_polygon(geom)
 
         for i in range(oriented_geom.GetGeometryCount()):
             ring = oriented_geom.GetGeometryRef(i)
@@ -188,6 +187,8 @@ class SimplificationWorker(multiprocessing.Process):
 
         empty = True
         new_polygon = ogr.Geometry(ogr.wkbPolygon)
+        geom = SimplificationWorker.orient_polygon(geom)
+        dimx, dimy = self.incidence_dims[0], self.incidence_dims[1]
 
         for i in range(geom.GetGeometryCount()):
             ring = geom.GetGeometryRef(i)
@@ -198,8 +199,8 @@ class SimplificationWorker(multiprocessing.Process):
             if len(points) < 3:
                 continue
 
+            incidences = np.zeros((len(keys)), dtype="uint8")
             try:
-                incidences = np.empty((len(keys)), dtype="uint8")
                 SimplificationWorker.gather_incidence(self.incidence_np, np.array(keys, dtype="int64"), incidences, self.incidence_np.shape[0])
             except:
                 traceback.print_exc()
@@ -250,33 +251,132 @@ class SimplificationWorker(multiprocessing.Process):
                 if isAnchor > 0:
                     fixed.append(len(vertices) - isAnchor)
 
+            simplified = None
             if len(vertices) > 2:
-                simplified = SimplificationWorker.simplify_with_fixed(vertices, self.epsilon, fixed)
-                simplified = SimplificationWorker.simplify_with_fixed(simplified, 1e-3 * self.epsilon, [])
+                simplified, anchors = SimplificationWorker.simplify_with_fixed(vertices, self.epsilon, fixed)
+                # remove collinear leftovers, but keep every anchor (junctions must stay in all polygons);
+                # anchors inside a straight run along the tile border are not needed
+                anchors = SimplificationWorker.drop_border_run_anchors(simplified, anchors, dimx, dimy)
+                simplified, _ = SimplificationWorker.simplify_with_fixed(simplified, 1e-3 * self.epsilon, anchors)
+                if not SimplificationWorker.is_valid_ring(simplified):
+                    simplified = None
 
-                if len(simplified) > 2:
-                    # convert from pixel-space to crs space
-                    simplified = [(self.offset[0] + self.step_size[0] * p[0], self.offset[1] + self.step_size[1] * p[1]) for p in simplified]
+            # a field too small for the tolerance collapses and is dropped; if its shell collapses,
+            # the holes must not be promoted to a shell
+            if simplified is None:
+                if i == 0:
+                    break
+                continue
 
-                    new_ring = ogr.Geometry(ogr.wkbLinearRing)
-                    for x, y in simplified:
-                        new_ring.AddPoint_2D(x, y)
-                    new_ring.CloseRings()
+            # convert from pixel-space to crs space
+            simplified = [(self.offset[0] + self.step_size[0] * p[0], self.offset[1] + self.step_size[1] * p[1]) for p in simplified]
 
-                    new_polygon.AddGeometry(new_ring)
-                    empty = False
+            new_ring = ogr.Geometry(ogr.wkbLinearRing)
+            for x, y in simplified:
+                new_ring.AddPoint_2D(x, y)
+            new_ring.CloseRings()
+
+            new_polygon.AddGeometry(new_ring)
+            empty = False
 
         if not empty:
-            fixed = new_polygon.Buffer(0)
-            if fixed.GetGeometryType() == ogr.wkbPolygon:
-                multipoly = ogr.Geometry(ogr.wkbMultiPolygon)
-                multipoly.AddGeometry(fixed)
-                fixed = multipoly
+            # MakeValid keeps all area of a self-touching result (Buffer(0) silently drops lobes)
+            repaired = new_polygon if new_polygon.IsValid() else new_polygon.MakeValid()
+            multipoly = ogr.Geometry(ogr.wkbMultiPolygon)
+            SimplificationWorker.collect_polygons(repaired, multipoly)
 
-            output_wkb = fixed.ExportToWkb()
-            self.output_queue.put((fid, output_wkb, fields))
+            if multipoly.GetGeometryCount() > 0:
+                self.output_queue.put((fid, multipoly.ExportToWkb(), fields))
+            else:
+                self.output_queue.put((-1, None, None))
         else:
             self.output_queue.put((-1, None, None))
+
+    @staticmethod
+    def collect_polygons(geom, multipoly):
+        name = geom.GetGeometryName()
+        if name == "POLYGON":
+            if not geom.IsEmpty():
+                multipoly.AddGeometry(geom)
+        elif name in ("MULTIPOLYGON", "GEOMETRYCOLLECTION"):
+            for k in range(geom.GetGeometryCount()):
+                SimplificationWorker.collect_polygons(geom.GetGeometryRef(k), multipoly)
+
+    @staticmethod
+    def signed_area(points):
+        pts = np.asarray(points, dtype=np.float64)
+        if len(pts) < 3:
+            return 0.0
+        x, y = pts[:, 0], pts[:, 1]
+        return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+    @staticmethod
+    def is_valid_ring(points):
+        return len(points) > 2 and abs(SimplificationWorker.signed_area(points)) > 1e-9
+
+    @staticmethod
+    def orient_polygon(geom):
+        # shell counter-clockwise, holes clockwise (in CRS coordinates)
+        oriented = ogr.Geometry(ogr.wkbPolygon)
+        for i in range(geom.GetGeometryCount()):
+            ring = geom.GetGeometryRef(i)
+            points = [(p[0], p[1]) for p in (ring.GetPoints() or [])]
+
+            if len(points) >= 3:
+                is_ccw = SimplificationWorker.signed_area(points) > 0
+                if is_ccw != (i == 0):
+                    points = points[::-1]
+
+            new_ring = ogr.Geometry(ogr.wkbLinearRing)
+            for x, y in points:
+                new_ring.AddPoint_2D(x, y)
+            oriented.AddGeometry(new_ring)
+
+        return oriented
+
+    @staticmethod
+    def split_closed_pieces(points, fixed_indices):
+        n = len(points)
+        out = []
+        for i, start in enumerate(fixed_indices):
+            end = fixed_indices[(i + 1) % len(fixed_indices)]
+            out.append(start)
+
+            if start < end:
+                piece = list(range(start, end + 1))
+            else:
+                piece = list(range(start, n)) + list(range(0, end + 1))
+
+            if points[start] != points[end] or len(piece) < 3:
+                continue
+
+            # farthest point from the loop's anchor; ties broken by coordinates, so both polygons sharing the loop pick the same one
+            p0 = points[start]
+            far = max(piece[1:-1], key=lambda k: ((points[k][0] - p0[0]) ** 2 + (points[k][1] - p0[1]) ** 2, -points[k][1], -points[k][0]))
+            out.append(far)
+
+        return sorted(set(out))
+
+    @staticmethod
+    def drop_border_run_anchors(points, anchors, dimx, dimy):
+        # every tile-border vertex is an anchor (the pieces of a field must meet exactly on the tile line);
+        # the ones in the middle of a straight run along one border line are redundant
+        def border_lines(p):
+            lines = set()
+            if p[0] == 0: lines.add("x0")
+            if p[0] == dimx - 1: lines.add("x1")
+            if p[1] == 0: lines.add("y0")
+            if p[1] == dimy - 1: lines.add("y1")
+            return lines
+
+        n = len(points)
+        kept = []
+        for a in anchors:
+            own = border_lines(points[a])
+            common = own & border_lines(points[(a - 1) % n]) & border_lines(points[(a + 1) % n])
+            if len(common) == 0 or len(own) > 1:
+                kept.append(a)
+        return kept
 
     @staticmethod
     def densify(ring, step, offset, dimx, dimy):
@@ -330,8 +430,8 @@ class SimplificationWorker(multiprocessing.Process):
     
     @staticmethod
     def to_key_and_ipos(point, step, offset, dimx, dimy):
-        x = int(np.round((point[0] - offset[0]) / step[0]) + 0.5)
-        y = int(np.round((point[1] - offset[1]) / step[1]) + 0.5)
+        x = int(np.rint((point[0] - offset[0]) / step[0]))
+        y = int(np.rint((point[1] - offset[1]) / step[1]))
 
         if (x < 0 or x >= dimx) or (y < 0 or y >= dimy):
             return np.int64(-1), (x, y)
@@ -340,13 +440,32 @@ class SimplificationWorker(multiprocessing.Process):
 
     @staticmethod
     def simplify_with_fixed(points, epsilon, fixed_indices, closed=True):
-        if len(fixed_indices) < 2:
-            arr = np.array(points, dtype=np.float32).reshape(-1, 1, 2)
-            approx = cv2.approxPolyDP(arr, epsilon, True).reshape(-1, 2)
-            return approx.tolist()
-
+        """Returns (simplified closed ring without the closing duplicate, positions of the anchors in it).
+        Every piece between anchors is simplified in a canonical direction, so both polygons sharing it get the same result."""
+        points = [(p[0], p[1]) for p in points]
         fixed_indices = sorted(set(fixed_indices))
+
+        if len(fixed_indices) == 0:
+            # e.g. a hole filled exactly by another field: start at the lowest point and use one direction
+            n_points = len(points)
+            start = min(range(n_points), key=lambda k: (points[k][1], points[k][0]))
+            ring = points[start:] + points[:start]
+            reverse = SimplificationWorker.signed_area(ring) < 0
+            if reverse:
+                ring = [ring[0]] + ring[1:][::-1]
+
+            approx = cv2.approxPolyDP(np.array(ring, dtype=np.float32).reshape(-1, 1, 2), epsilon, True).reshape(-1, 2).tolist()
+            approx = [tuple(p) for p in approx]
+            if reverse:
+                approx = [approx[0]] + approx[1:][::-1]
+            return approx, []
+
+        # a piece that starts and ends at the same point (a single anchor, or a lobe between two visits
+        # of a pinch vertex) is a closed loop, which open RDP can't handle: split it at its farthest point
+        fixed_indices = SimplificationWorker.split_closed_pieces(points, fixed_indices)
+
         result = []
+        anchors_out = []
 
         n = len(fixed_indices) if closed else len(fixed_indices) - 1
 
@@ -370,14 +489,19 @@ class SimplificationWorker(multiprocessing.Process):
                 segment = segment[::-1]
 
             arr = np.array(segment, dtype=np.float32).reshape(-1, 1, 2)
-            approx = cv2.approxPolyDP(arr, epsilon, False).reshape(-1, 2)
+            approx = [tuple(p) for p in cv2.approxPolyDP(arr, epsilon, False).reshape(-1, 2).tolist()]
 
-            approx[0] = segment[0]
-            approx[-1] = segment[-1]
+            # the anchors must be kept: add them if RDP didn't return them (never overwrite a real vertex)
+            if approx[0] != segment[0]:
+                approx.insert(0, segment[0])
+            if approx[-1] != segment[-1]:
+                approx.append(segment[-1])
 
             if need_to_reverse:
                 approx = approx[::-1]
 
-            result.extend(approx.tolist())
+            # the last point is the next anchor and starts the next piece
+            anchors_out.append(len(result))
+            result.extend(approx[:-1])
 
-        return result
+        return result, anchors_out

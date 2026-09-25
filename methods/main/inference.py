@@ -477,9 +477,6 @@ def warp_lclu(src, dst, sample_tiff, total_bounds, pixel_size, warp_options):
     if mask_path is not None:
         temp_lclu_tiff_path = dst
 
-        if os.path.exists(dst):
-            return temp_lclu_tiff_path
-
         sample_raster = gdal.Open(sample_tiff)
         target_proj = sample_raster.GetProjection()
 
@@ -487,6 +484,17 @@ def warp_lclu(src, dst, sample_tiff, total_bounds, pixel_size, warp_options):
 
         cols = int(math.ceil((maxx - minx) / pixel_size[0]))
         rows = int(math.ceil((maxy - miny) / abs(pixel_size[1])))
+
+        # the cached warp (keep_temp) is reused only if it was made from the same mask for the same grid
+        source_key = f"{os.path.abspath(mask_path)}|{os.path.getmtime(mask_path)}|{total_bounds}|{cols}x{rows}"
+        if os.path.exists(dst):
+            cached = gdal.Open(dst)
+            cached_key = cached.GetMetadataItem("DA_SOURCE_KEY") if cached is not None else None
+            cached = None
+            if cached_key == source_key:
+                return temp_lclu_tiff_path
+            logger.info("Cached LCLU mask does not match the current mask or extent. Re-warping.")
+            os.remove(dst)
 
         pbar = tqdm(total=100, desc="Warping LCLU", unit="%")
 
@@ -508,5 +516,9 @@ def warp_lclu(src, dst, sample_tiff, total_bounds, pixel_size, warp_options):
             creationOptions=warp_options,
             callback=warping_progress_callback,
         )
+
+        warped = gdal.Open(dst, gdal.GA_Update)
+        warped.SetMetadataItem("DA_SOURCE_KEY", source_key)
+        warped = None
 
     return temp_lclu_tiff_path

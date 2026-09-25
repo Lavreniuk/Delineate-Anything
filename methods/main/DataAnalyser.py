@@ -30,7 +30,13 @@ class DataAnalyser:
         self.max = [[] for _ in BANDS]
 
         for file in tqdm(self.tiffs):
-            ds = gdal.Open(file, gdal.GA_ReadOnly)
+            # never read (averaged) overviews: they would shrink the percentile range
+            try:
+                ds = gdal.OpenEx(file, gdal.OF_RASTER | gdal.OF_READONLY, open_options=["OVERVIEW_LEVEL=NONE"])
+            except Exception:
+                ds = None
+            if ds is None:
+                ds = gdal.Open(file, gdal.GA_ReadOnly)
 
             if ds.GetRasterBand(BANDS[0]).DataType == gdal.GDT_Byte:
                 self.min = [0 for _ in BANDS]
