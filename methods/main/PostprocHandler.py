@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import queue
 
 import multiprocessing
 from multiprocessing import shared_memory
@@ -55,25 +56,33 @@ class PostprocHandler:
 
     def put(self, args):
         while len(self.queue) == self.queue_tiles_capacity:
-            self.run()
+            if not self.run():
+                time.sleep(0.001)
 
         self.queue.append(args)
         self.run()
 
     def sync(self):
         while not (len(self.queue) == 0 and self.tiles_inflight == 0):
-            self.run()
+            if not self.run():
+                time.sleep(0.001)
 
     def run(self):
+        made_progress = False
         # estimate load on each worker
-        while not self.result_queue.empty():
-            worker_id, local_mapping_dict = self.result_queue.get()
+        while True:
+            try:
+                worker_id, local_mapping_dict = self.result_queue.get_nowait()
+            except queue.Empty:
+                break
+
             self.tiles_inflight -= 1
             self.workers_load[worker_id] -= 1
             self.update_id_mapper(local_mapping_dict)
+            made_progress = True
 
         if self.tiles_inflight >= self.max_tiles_inflight:
-            return
+            return made_progress
 
         while not len(self.queue) == 0 and self.tiles_inflight < self.max_tiles_inflight:
             arg = self.queue.pop(0)
@@ -83,6 +92,9 @@ class PostprocHandler:
             self.tiles_inflight += 1
             self.workers_load[argmin] += 1
             worker.queue.put((UnitedWorker.MODE_POSTPROC, arg, ((self.region_size[1], self.region_size[0]), (self.region_size[1], self.region_size[0]), self.postproc_config)))
+            made_progress = True
+
+        return made_progress
     
     def set_postproc_config(self, config):
         self.postproc_config = config
