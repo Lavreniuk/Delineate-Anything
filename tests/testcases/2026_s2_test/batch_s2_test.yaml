@@ -1,0 +1,20 @@
+base_config: conf_s2.yaml
+
+# change for your data paths
+data_root: images
+output_root: output
+temp_root: temp
+keep_temp: false
+mask_root: masks
+
+# null if use all subfolders or exclude is not null
+include: 
+  - 2026_s2_test
+
+# null if use all subfolders or include is not null
+exclude: null
+
+# in case if you don't want to duplicate lclu files you can directly specify path to it
+override: null
+  # - entry: Sample
+  #   mask: data/masks/Sample.tif
