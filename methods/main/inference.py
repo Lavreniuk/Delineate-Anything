@@ -113,7 +113,7 @@ def execute(model_paths, config, verbose):
 
         ram = psutil.virtual_memory()
         available_ram = ram.available
-        region_pixels = available_ram // 24
+        region_pixels = available_ram // 28
         padding_size = 512
 
         if total_pixels_in_image > region_pixels:
@@ -334,7 +334,7 @@ def execute_delineation(models, planner, postproc_config, passes, dataloader_con
                                         global_field_counter += field_counter_increment * len(result[i].masks)
 
                             args = ([results[i].cpu() for results in model_results], nodata_batch[i], bounds_batch[i], id_counter)
-                            postproc_handler.put(args)
+                            postproc_handler.put(args, images_batch[i])
 
                         pbar_delineate.n = np.clip(region_counter + np.clip(float(dataloader.get_progress() + plan_entry_id) / len(plan), 0, 1), 0, num_regions)
                         pbar_delineate.refresh()

@@ -73,3 +73,25 @@ If you are using LCLU masks, verify the following parameters:
       range: N+1                   # For integer masks in range [0, N] (including nodata), set to N+1. Else use null.
       filter_classes: [...]       # Classes used to fully remove fields in case of excessive overlap.
       clip_classes: [...]         # Classes to subtract from field polygons.
+
+## Tile seams (`passes[].delineation_config`)
+
+Fields that neighbouring tiles fail to merge end up cut by a straight line on the tile grid (every 1280 m for Sentinel-2).
+With `merge_tile_seams: true` (the default) such pieces are joined after inference if, on the tile border:
+- they touch for at least `seam_min_contact_px` pixels, covering at least `seam_min_coverage` of the longer cut edge;
+- both cut edges start and end at the same place (within `max(seam_end_tolerance_px, seam_end_tolerance_rel * contact)`),
+  or the smaller piece is only a strip along the border (at most `seam_max_strip_depth_px` deep);
+- the tile centred on that border, which sees it with half a tile of context on both sides, did not see a boundary
+  there: along at least `seam_min_evidence` of the contact where it saw one, it saw one field across the whole window
+  of `seam_split_window_px` px on both sides of the border;
+- the mean colour on both sides differs by at most `seam_max_colour_diff` (0-1 scale);
+- each piece is joined with at most one piece on the other side of a given border (its longest contact).
+
+`seam_split_window_px: 1` (the default) checks only the pixels right at the border and removes most straight cuts.
+A wider window also catches real boundaries a few px off the border, where the tile grid cut two fields at once:
+with `8`, about half as many neighbouring fields get wrongly joined (checked against reference fields in 100
+countries), but more straight cuts stay.
+
+Raising the thresholds joins fewer pieces; lowering them removes more cuts but may join neighbouring fields that
+happen to meet exactly on a tile border (for example, parallel strip fields). Set `merge_tile_seams: false` to disable.
+Requires `tile_step: 0.5` (the default).
