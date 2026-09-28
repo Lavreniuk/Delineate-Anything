@@ -23,9 +23,10 @@ class UnitedWorker(multiprocessing.Process):
         self.shm_weights = shared_memory.SharedMemory(name=shm_weight_name)
 
         # set postproc related args
-        mapping_dict, area_dict = postproc_args
+        mapping_dict, area_dict, shm_seam_name = postproc_args
         self.mapping_dict = mapping_dict
         self.area_dict = area_dict
+        self.shm_seam = shared_memory.SharedMemory(name=shm_seam_name)
 
         # set vectorization related args
         raster_shape, region_begin, region_end, poly_config, srs_wkt = polygonize_args
@@ -47,7 +48,7 @@ class UnitedWorker(multiprocessing.Process):
             if inner_queue:
                 entries = inner_queue.pop(0)
                 local_mapping_dict = {}
-                PostprocWorker.process_fields(entries, local_mapping_dict, self.area_dict, (self.shm_instances, instances_shape), (self.shm_weights, weight_shape), postproc_config)
+                PostprocWorker.process_fields(entries, local_mapping_dict, self.area_dict, (self.shm_instances, instances_shape), (self.shm_weights, weight_shape), postproc_config, (self.shm_seam, instances_shape))
                 self.result_queue.put((self.id, local_mapping_dict))
                 continue
 
@@ -56,6 +57,7 @@ class UnitedWorker(multiprocessing.Process):
             if arg == UnitedWorker.MODE_TERMINATE:
                 self.shm_instances.close()
                 self.shm_weights.close()
+                self.shm_seam.close()
                 return
 
             mode = arg[0]

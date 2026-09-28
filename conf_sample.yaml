@@ -68,6 +68,17 @@ passes:
       merge_edge_iou: 0.6
       merge_edge_pixels: 192
 
+      # Join fields left split along tile borders (straight cuts on a 1280 m grid for S2)
+      merge_tile_seams: true
+      seam_min_contact_px: 8       # minimum contact along the border (px after super-resolution)
+      seam_min_coverage: 0.3       # contact / longer of the two cut edges on the border
+      seam_min_evidence: 0.5       # share of the contact the centred tile must see as one field (where it saw a boundary)
+      seam_split_window_px: 1      # the centred tile is checked for a boundary within this many px of the border (see guide)
+      seam_max_colour_diff: 0.2    # maximum mean-colour difference (0-1) between the two sides of the border
+      seam_end_tolerance_px: 8     # both cut edges must start and end within max(this, seam_end_tolerance_rel * contact) px ...
+      seam_end_tolerance_rel: 0.25
+      seam_max_strip_depth_px: 16  # ... unless the smaller piece is a strip at most this deep along the border
+
 polygonization_args:
   layer_name: fields
   override_if_exists: true

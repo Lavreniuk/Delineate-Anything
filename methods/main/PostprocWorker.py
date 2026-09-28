@@ -47,7 +47,7 @@ class PostprocWorker:
         }
 
     @staticmethod
-    def process_fields(entry, mapping_dict, area_dict, instances_info, weight_info, config):
+    def process_fields(entry, mapping_dict, area_dict, instances_info, weight_info, config, seam_info=None):
         dst_instances = np.ndarray(instances_info[1], dtype="int32", buffer=instances_info[0].buf)
         dst_weigths = np.ndarray(weight_info[1], dtype="float32", buffer=weight_info[0].buf)
 
@@ -168,6 +168,9 @@ class PostprocWorker:
             area_dict.update(local_area_dict)
         # end compose
 
+        if seam_info is not None:
+            PostprocWorker.write_centre_view(instances, entry["bounds"]["inregion"], seam_info)
+
         instances[:MERGING_EDGE_WIDTH, :] |= 1
         instances[-MERGING_EDGE_WIDTH:, :] |= 1
         instances[:, :MERGING_EDGE_WIDTH] |= 1
@@ -217,6 +220,21 @@ class PostprocWorker:
             if key not in self.cache:
                 self.cache[key] = self.shared_dict[key]
             return self.cache[key]
+
+    @staticmethod
+    def write_centre_view(instances, inregion, centre_info):
+        # With a tile step of half a tile, the central half of this tile is seen by no other tile from closer to its
+        # centre, and the borders of the neighbouring tiles run through its middle. Keep this tile's fields there: the
+        # seam merge checks against this view whether two pieces meeting on such a border are one field.
+        bx, by, w, h = (int(v) for v in inregion)
+        if instances.shape != (h, w):
+            return
+        centre = np.ndarray(centre_info[1], dtype="int32", buffer=centre_info[0].buf)
+        height, width = centre_info[1]
+        x0, x1 = max(bx + w // 4, 0), min(bx + 3 * w // 4, width)
+        y0, y1 = max(by + h // 4, 0), min(by + 3 * h // 4, height)
+        if x0 < x1 and y0 < y1:
+            centre[y0:y1, x0:x1] = instances[y0 - by:y1 - by, x0 - bx:x1 - bx]
 
     @staticmethod
     def find_edge_mapping(current, new, dst, area_dict, merge_iou, 
