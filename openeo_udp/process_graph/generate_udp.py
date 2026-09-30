@@ -30,6 +30,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from openeo_udp.tests.test_udf_cdse import (  # noqa: E402
+    DEFAULT_JOB_OPTIONS,
     DEFAULT_WEIGHTS_URL,
     build_delineate_onnx,
 )
@@ -37,6 +38,37 @@ from openeo_udp.tests.test_udf_cdse import (  # noqa: E402
 DEFAULT_PROCESS_ID = "delineate_anything"
 DEFAULT_BACKEND = "https://openeo.dataspace.copernicus.eu"
 OUTPUT_PATH = Path(__file__).with_name(f"{DEFAULT_PROCESS_ID}_udp.json")
+
+DEFAULT_PALOUSE_GEOMETRY = {
+    "type": "Polygon",
+    "coordinates": [[
+        [-117.0635, 46.7150],
+        [-116.9325, 46.7150],
+        [-116.9325, 46.8050],
+        [-117.0635, 46.8050],
+        [-117.0635, 46.7150],
+    ]],
+}
+
+DEFAULT_UDP_URL = (
+    "https://raw.githubusercontent.com/Lavreniuk/Delineate-Anything/"
+    "refs/heads/main/openeo_udp/process_graph/delineate_anything_udp.json"
+)
+
+DEFAULT_DESCRIPTION = """\
+Delineate Anything v2 is a resolution-agnostic global foundation model for agricultural \
+field boundary detection from satellite imagery (Lavreniuk et al., ECCV 2026, \
+arXiv:2607.19069). Built on a YOLO instance-segmentation backbone and trained on \
+FBIS-73M — a 73-million-instance dataset spanning 61 countries and resolutions from \
+0.25 m to 10 m — it provides an accurate and efficient delineation methodology.
+
+This process composes a Best-Available-Pixel (BAP) Sentinel-2 L2A RGB mosaic over the \
+requested geometry and temporal window, then applies the Delineate Anything v2 ONNX \
+model tile-wise (512x512 px with overlap) via a Python UDF to return per-field instance \
+labels as a GeoTIFF. The YOLO backbone was exported to ONNX; the segmentation head was \
+reimplemented inside the UDF using numpy + onnxruntime only (no torch / ultralytics \
+runtime dependency).
+"""
 
 
 def build_udp(
@@ -69,14 +101,15 @@ def build_udp(
         weights_url=weights_url,
     )
 
+    geometry_dict = geometry.to_dict()
+    geometry_dict["default"] = DEFAULT_PALOUSE_GEOMETRY
+
     return {
         "id": process_id,
         "summary": "Delineate field boundaries from Sentinel-2 imagery.",
-        "description": (
-            "Runs the Delineate-Anything ONNX model on a BAP RGB composite for the "
-            "given geometry and temporal extent."
-        ),
-        "parameters": [geometry.to_dict(), temporal_extent.to_dict()],
+        "description": DEFAULT_DESCRIPTION,
+        "default_job_options": DEFAULT_JOB_OPTIONS,
+        "parameters": [geometry_dict, temporal_extent.to_dict()],
         "process_graph": cube.flat_graph(),
     }
 
