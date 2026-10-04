@@ -42,6 +42,16 @@ class PostprocHandler:
         # ("x", pos) -> uint8 (H, 2 * SEAM_STRIP, C) image strip around a vertical border; ("y", pos) -> (2 * SEAM_STRIP, W, C)
         self.seam_strips = {}
 
+        # Regions are post-processed and polygonized one by one, so a field split on a region border can't be joined in
+        # the raster. Each region keeps a thin strip of ids / centre view / image along its right and bottom borders
+        # ("x", border x, region y) / ("y", border y, region x) -> dict, all in global upscaled px; the neighbouring
+        # region checks its own side of the border against it, and the accepted (id, id) pairs are joined in the
+        # output layer after all regions are written (inference.postdelineation_merge)
+        self.region_borders = {}
+        self.region_seam_pairs = []
+        # pairs already joined by the model's own merges / accepted by the seam test
+        self.region_seam_counts = [0, 0]
+
         self.id_mapper = IncrementalFastMapper(10_000_000)
 
         # create queues
@@ -74,8 +84,10 @@ class PostprocHandler:
         self.tile_edges_x.update((bx, bx + bw))
         self.tile_edges_y.update((by, by + bh))
 
-        if image is not None and self.postproc_config.get("merge_tile_seams", True):
-            self.__store_seam_strips(image, bx, by, bw, bh)
+        merge_tile_seams = self.postproc_config.get("merge_tile_seams", True)
+        merge_region_seams = self.postproc_config.get("merge_region_seams", True)
+        if image is not None and (merge_tile_seams or merge_region_seams):
+            self.__store_seam_strips(image, bx, by, bw, bh, merge_tile_seams, merge_region_seams)
 
         while len(self.queue) == self.queue_tiles_capacity:
             if not self.run():
@@ -146,27 +158,35 @@ class PostprocHandler:
         if self.postproc_config.get("merge_tile_seams", True):
             self.__merge_tile_seams()
 
+        if self.postproc_config.get("merge_region_seams", True):
+            self.__merge_region_seams()
+
         PostprocHandler.__id_opening(self.instances_map)
 
         end_end = time.time()
         logger.debug(f"Mapped in {end_end - start} s; Applied in {end_end - end} s.")
 
-    def __merge_tile_seams(self):
-        # A field that neighbouring tiles failed to merge ends up as two ids meeting exactly on a tile border.
-        # Two ids are joined only if, on that border, they touch along most of their cut edges, the tile centred on
-        # the border did not see two different fields there, and the image looks the same on both sides.
-        min_contact = self.postproc_config.get("seam_min_contact_px", 8)
-        min_coverage = self.postproc_config.get("seam_min_coverage", 0.3)
-        min_evidence = self.postproc_config.get("seam_min_evidence", 0.5)
-        max_colour_diff = self.postproc_config.get("seam_max_colour_diff", 0.2)
+    def __read_seam_params(self):
+        self.min_contact = self.postproc_config.get("seam_min_contact_px", 8)
+        self.min_coverage = self.postproc_config.get("seam_min_coverage", 0.3)
+        self.min_evidence = self.postproc_config.get("seam_min_evidence", 0.5)
+        self.max_colour_diff = self.postproc_config.get("seam_max_colour_diff", 0.2)
         # the tile centred on the border is asked whether it sees a boundary within this many px of the border
         self.split_window = self.postproc_config.get("seam_split_window_px", 1)
         # the two cut edges must start and end at the same place (within this many px, or this share of the contact),
         # unless the smaller piece is only a thin strip along the border (at most seam_max_strip_depth_px deep)
         self.end_tolerance = (self.postproc_config.get("seam_end_tolerance_px", 8), self.postproc_config.get("seam_end_tolerance_rel", 0.25))
         self.max_strip_depth = self.postproc_config.get("seam_max_strip_depth_px", 16)
+        # how many px of ids on each side of a border the checks look at (strip depth test, colour comparison)
+        self.seam_depth = max(self.max_strip_depth + 1, SEAM_STRIP // 2)
 
-        pairs = self.__find_seam_pairs(min_contact, min_coverage, min_evidence, max_colour_diff)
+    def __merge_tile_seams(self):
+        # A field that neighbouring tiles failed to merge ends up as two ids meeting exactly on a tile border.
+        # Two ids are joined only if, on that border, they touch along most of their cut edges, the tile centred on
+        # the border did not see two different fields there, and the image looks the same on both sides.
+        self.__read_seam_params()
+
+        pairs = self.__find_seam_pairs()
         if len(pairs) == 0:
             return
 
@@ -176,18 +196,103 @@ class PostprocHandler:
         self.instances_map[:, :] = npmap[self.instances_map]
         logger.debug(f"Merged {len(pairs)} field pairs split by tile borders.")
 
-    def __store_seam_strips(self, image, bx, by, bw, bh):
+    def __merge_region_seams(self):
+        # A field crossing a region border is post-processed in two regions. The tile straddling the border is the
+        # same in both (same ids), so usually both sides get the same id and the pieces are joined by id in the output
+        # layer; where the tiles on either side of the border failed to merge, the field is cut along the border just
+        # like on a tile border inside a region. The region border is a tile border too (region size is a multiple of
+        # the tile step), so the same test is run on it: this region's left / top border against the strips the left /
+        # top neighbour kept along its right / bottom border. The tile centred on the border also lies in both regions
+        # and writes its centre view on both sides of it, so the centre evidence is complete.
+        self.__read_seam_params()
+        data, centre = self.instances_map, self.centre_map
+        height, width = data.shape
+        ox, oy = (int(v) for v in self.postproc_config["region_offset"])
+        depth, window = self.seam_depth, self.split_window
+
+        def strip_half(key, before, vertical):
+            # the image on one side of a region border, as (positions along the border, px away from it, C)
+            strip = self.seam_strips.get(key)
+            if strip is None:
+                return None
+            if not vertical:
+                strip = strip.transpose(1, 0, 2)
+            half = strip[:, :SEAM_STRIP][:, ::-1] if before else strip[:, SEAM_STRIP:]
+            return np.ascontiguousarray(half)
+
+        # this region's left / top side: ids going away from the border, centre view next to it, image
+        sides = {
+            ("x", ox, oy): (data[:, :depth], centre[:, :window], strip_half(("x", 0), False, True)),
+            ("y", oy, ox): (data[:depth, :].T, centre[:window, :].T, strip_half(("y", 0), False, False)),
+        }
+        pairs, same = [], 0
+        for key, (ids_b, centre_b, img_b) in sides.items():
+            kept = self.region_borders.pop(key, None)
+            if kept is None:
+                continue
+            ids_a, centre_a, img_a = kept["ids"], kept["centre"], kept["image"]
+            n = min(len(ids_a), len(ids_b))
+            ids_a, centre_a, ids_b, centre_b = ids_a[:n], centre_a[:n], ids_b[:n], centre_b[:n]
+            img_a = None if img_a is None else img_a[:n]
+            img_b = None if img_b is None else img_b[:n]
+
+            # the left / top neighbour was written with the ids it had then; the model's own merges made in this
+            # region (shared tiles) may have joined such an id with one of ours since: then it's one field, as it
+            # would be inside a region
+            side_a, side_b = ids_a[:, 0], ids_b[:, 0]
+            touching = (side_a >= 2) & (side_b >= 2) & (side_a != side_b)
+            joined = set()
+            if touching.any():
+                keys = np.unique((side_a[touching].astype(np.int64) << 32) | side_b[touching].astype(np.int64))
+                for k in keys:
+                    id_a, id_b = int(k >> 32), int(k & 0xFFFFFFFF)
+                    if self.id_mapper.find(id_a) == self.id_mapper.find(id_b):
+                        joined.add((id_a, id_b))
+            same += len(joined)
+
+            crossing, split = PostprocHandler.__evidence(np.concatenate([centre_a, centre_b], axis=1))
+            found = self.__border_pairs(ids_a, ids_b, crossing, split, img_a, img_b)
+            pairs += sorted(joined) + [p for p in found if p not in joined]
+
+        self.region_seam_pairs += pairs
+        self.region_seam_counts[0] += same
+        self.region_seam_counts[1] += len(pairs) - same
+
+        # keep this region's right / bottom side for the neighbours processed later
+        self.region_borders[("x", ox + width, oy)] = {
+            "ids": np.ascontiguousarray(data[:, width - depth:][:, ::-1]),
+            "centre": np.ascontiguousarray(centre[:, width - window:]),
+            "image": strip_half(("x", width), True, True),
+        }
+        self.region_borders[("y", oy + height, ox)] = {
+            "ids": np.ascontiguousarray(data[height - depth:, :][::-1, :].T),
+            "centre": np.ascontiguousarray(centre[height - window:, :].T),
+            "image": strip_half(("y", height), True, False),
+        }
+        logger.debug(f"Region {ox},{oy}: {len(pairs)} field pairs split by region borders ({same} already one field, {len(pairs) - same} by the seam test).")
+
+    def get_region_seam_pairs(self):
+        if self.region_seam_pairs:
+            logger.info(f"Field pieces to join across region borders: {len(self.region_seam_pairs)} pairs "
+                        f"({self.region_seam_counts[0]} already one field, {self.region_seam_counts[1]} by the seam test).")
+        return list(self.region_seam_pairs)
+
+    def __store_seam_strips(self, image, bx, by, bw, bh, tile_seams=True, region_seams=False):
         # keep the image around every tile border crossing this tile (its own borders and, with a half-tile step,
-        # its centre lines); overlapping tiles fill the other side of each border
+        # its centre lines); overlapping tiles fill the other side of each border. Borders inside the region are
+        # needed for tile seams, the region's own borders (0 and width / height) for region seams.
         if image.shape[0] != bh or image.shape[1] != bw:
             return
         height, width = self.instances_map.shape
         channels = image.shape[2]
 
+        def wanted(pos, size):
+            return (tile_seams and 0 < pos < size) or (region_seams and (pos == 0 or pos == size))
+
         r0, r1 = max(by, 0), min(by + bh, height)
         for x in (bx, bx + bw // 2, bx + bw):
             c0, c1 = max(x - SEAM_STRIP, bx, 0), min(x + SEAM_STRIP, bx + bw, width)
-            if not (0 < x < width) or c0 >= c1 or r0 >= r1:
+            if not wanted(x, width) or c0 >= c1 or r0 >= r1:
                 continue
             strip = self.seam_strips.get(("x", x))
             if strip is None:
@@ -197,61 +302,56 @@ class PostprocHandler:
         c0, c1 = max(bx, 0), min(bx + bw, width)
         for y in (by, by + bh // 2, by + bh):
             r0, r1 = max(y - SEAM_STRIP, by, 0), min(y + SEAM_STRIP, by + bh, height)
-            if not (0 < y < height) or c0 >= c1 or r0 >= r1:
+            if not wanted(y, height) or c0 >= c1 or r0 >= r1:
                 continue
             strip = self.seam_strips.get(("y", y))
             if strip is None:
                 strip = self.seam_strips[("y", y)] = np.zeros((2 * SEAM_STRIP, width, channels), dtype="uint8")
             strip[r0 - (y - SEAM_STRIP):r1 - (y - SEAM_STRIP), c0:c1] = image[r0 - by:r1 - by, c0 - bx:c1 - bx]
 
-    def __find_seam_pairs(self, min_contact, min_coverage, min_evidence, max_colour_diff):
+    def __find_seam_pairs(self):
         data, centre = self.instances_map, self.centre_map
         height, width = data.shape
-        k = SEAM_STRIP // 2   # depth (px) on each side of the border used for the colour comparison
+        depth = self.seam_depth
         pairs = []
         for x in sorted(self.tile_edges_x):
             if not (0 < x < width):
                 continue
-            line_pairs = []
             strip = self.seam_strips.get(("x", x))
+            img_a = None if strip is None else strip[:, :SEAM_STRIP][:, ::-1]
+            img_b = None if strip is None else strip[:, SEAM_STRIP:]
             crossing, split = PostprocHandler.__centre_evidence(centre, x, self.split_window)
-            for id_a, id_b, rows, aligned in PostprocHandler.__seam_pairs_on_line(data[:, x - 1], data[:, x], crossing, split,
-                                                                                  min_contact, min_coverage, min_evidence, self.end_tolerance):
-                if not aligned:
-                    depth = self.max_strip_depth + 1
-                    depth_a = PostprocHandler.__depth(data[rows, max(0, x - depth):x][:, ::-1], id_a)
-                    depth_b = PostprocHandler.__depth(data[rows, x:x + depth], id_b)
-                    if min(depth_a, depth_b) > self.max_strip_depth:
-                        continue
-                if strip is not None and x - k >= 0 and x + k <= width:
-                    ids_a, ids_b = data[rows, x - k:x], data[rows, x:x + k]
-                    img_a, img_b = strip[rows, SEAM_STRIP - k:SEAM_STRIP], strip[rows, SEAM_STRIP:SEAM_STRIP + k]
-                    if PostprocHandler.__colour_diff(img_a[ids_a == id_a], img_b[ids_b == id_b]) > max_colour_diff:
-                        continue
-                line_pairs.append((id_a, id_b, len(rows)))
-            pairs += PostprocHandler.__mutual_best(line_pairs)
+            pairs += self.__border_pairs(data[:, max(0, x - depth):x][:, ::-1], data[:, x:x + depth], crossing, split, img_a, img_b)
         for y in sorted(self.tile_edges_y):
             if not (0 < y < height):
                 continue
-            line_pairs = []
             strip = self.seam_strips.get(("y", y))
+            img_a = None if strip is None else strip[:SEAM_STRIP][::-1].transpose(1, 0, 2)
+            img_b = None if strip is None else strip[SEAM_STRIP:].transpose(1, 0, 2)
             crossing, split = PostprocHandler.__centre_evidence(centre.T, y, self.split_window)
-            for id_a, id_b, cols, aligned in PostprocHandler.__seam_pairs_on_line(data[y - 1, :], data[y, :], crossing, split,
-                                                                                  min_contact, min_coverage, min_evidence, self.end_tolerance):
-                if not aligned:
-                    depth = self.max_strip_depth + 1
-                    depth_a = PostprocHandler.__depth(data[max(0, y - depth):y, cols][::-1, :].T, id_a)
-                    depth_b = PostprocHandler.__depth(data[y:y + depth, cols].T, id_b)
-                    if min(depth_a, depth_b) > self.max_strip_depth:
-                        continue
-                if strip is not None and y - k >= 0 and y + k <= height:
-                    ids_a, ids_b = data[y - k:y, cols], data[y:y + k, cols]
-                    img_a, img_b = strip[SEAM_STRIP - k:SEAM_STRIP, cols], strip[SEAM_STRIP:SEAM_STRIP + k, cols]
-                    if PostprocHandler.__colour_diff(img_a[ids_a == id_a], img_b[ids_b == id_b]) > max_colour_diff:
-                        continue
-                line_pairs.append((id_a, id_b, len(cols)))
-            pairs += PostprocHandler.__mutual_best(line_pairs)
+            pairs += self.__border_pairs(data[max(0, y - depth):y, :][::-1, :].T, data[y:y + depth, :].T, crossing, split, img_a, img_b)
         return pairs
+
+    def __border_pairs(self, ids_a, ids_b, crossing, split, img_a, img_b):
+        # The seam test on one border. ids_a / ids_b: (positions along the border, px going away from it) ids on the
+        # two sides, column 0 touching the border; img_a / img_b: the image there in the same layout (or None);
+        # crossing / split: what the tile centred on the border saw at each position (see __evidence).
+        k = SEAM_STRIP // 2   # depth (px) on each side of the border used for the colour comparison
+        line_pairs = []
+        for id_a, id_b, rows, aligned in PostprocHandler.__seam_pairs_on_line(ids_a[:, 0], ids_b[:, 0], crossing, split,
+                                                                              self.min_contact, self.min_coverage, self.min_evidence, self.end_tolerance):
+            if not aligned:
+                depth = self.max_strip_depth + 1
+                depth_a = PostprocHandler.__depth(ids_a[rows, :depth], id_a)
+                depth_b = PostprocHandler.__depth(ids_b[rows, :depth], id_b)
+                if min(depth_a, depth_b) > self.max_strip_depth:
+                    continue
+            if img_a is not None and img_b is not None and ids_a.shape[1] >= k and ids_b.shape[1] >= k:
+                in_a, in_b = ids_a[rows, :k] == id_a, ids_b[rows, :k] == id_b
+                if PostprocHandler.__colour_diff(img_a[rows, :k][in_a], img_b[rows, :k][in_b]) > self.max_colour_diff:
+                    continue
+            line_pairs.append((id_a, id_b, len(rows)))
+        return PostprocHandler.__mutual_best(line_pairs)
 
     @staticmethod
     def __centre_evidence(centre, x, window):
@@ -259,7 +359,11 @@ class PostprocHandler:
         # (two different fields, or a gap between fields) within window px of the border, or one field across the
         # whole window. A real boundary is seen there by that tile too, even when it is a few px off the border;
         # a field cut only by the tiling is not (whatever other splits the model makes elsewhere in the field).
-        block = centre[:, max(x - window, 0):x + window]
+        return PostprocHandler.__evidence(centre[:, max(x - window, 0):x + window])
+
+    @staticmethod
+    def __evidence(block):
+        # block: (positions along the border, window on both sides of it) of the centred tile's ids
         field = block >= 2
         big = np.iinfo(block.dtype).max
         lowest = np.where(field, block, big).min(axis=1)
@@ -485,4 +589,4 @@ class PostprocHandler:
                 self.workers_load[process_id] = 0
                 
         for i in range(self.num_workers):
-            self.workers_list[i].start_running.wait()
+            self.workers_list[i].start_running.wait()
