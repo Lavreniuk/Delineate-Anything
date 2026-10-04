@@ -5,16 +5,25 @@ from osgeo import gdal, ogr
 from multiprocessing import Process, Queue, cpu_count
 from tqdm import tqdm
 
+def shift_geometry(geom, dx, dy):
+    """Shift every vertex of a geometry in place. Collections (MultiPolygon, Polygon -> rings, ...) are visited
+    recursively: the parts of a MultiPolygon are Polygons, whose own point count is 0 (issue #33)."""
+    if geom.GetGeometryCount() > 0:
+        for i in range(geom.GetGeometryCount()):
+            shift_geometry(geom.GetGeometryRef(i), dx, dy)
+        return
+    is_3d = geom.Is3D()
+    for j in range(geom.GetPointCount()):
+        x, y, z = geom.GetPoint(j)
+        if is_3d:
+            geom.SetPoint(j, x + dx, y + dy, z)
+        else:
+            geom.SetPoint_2D(j, x + dx, y + dy)  # SetPoint would turn 2D geometries into 3D
+
 def shift_single_feature(data):
     fid, wkt, dx, dy = data
     geom = ogr.CreateGeometryFromWkt(wkt)
-
-    for i in range(geom.GetGeometryCount()):
-        ring = geom.GetGeometryRef(i)
-        for j in range(ring.GetPointCount()):
-            x, y, z = ring.GetPoint(j)
-            ring.SetPoint(j, x + dx, y + dy, z)
-
+    shift_geometry(geom, dx, dy)
     return fid, geom.ExportToWkt()
 
 class GeometryWorker(Process):
@@ -32,11 +41,7 @@ class GeometryWorker(Process):
                 break  # Sentinel to shut down
             fid, wkt, field_vals = item
             geom = ogr.CreateGeometryFromWkt(wkt)
-            for i in range(geom.GetGeometryCount()):
-                ring = geom.GetGeometryRef(i)
-                for j in range(ring.GetPointCount()):
-                    x, y, z = ring.GetPoint(j)
-                    ring.SetPoint(j, x + self.dx, y + self.dy, z)
+            shift_geometry(geom, self.dx, self.dy)
             self.out_queue.put((fid, geom.ExportToWkt(), field_vals))
 
 def shifter(input_path, output_path, dx, dy):
@@ -143,8 +148,9 @@ def main():
     
     args = parser.parse_args()  
 
-    if not args.input or not args.output or not args.shift_x or not args.shift_y:
+    if not args.input or not args.output or (not args.shift_x and not args.shift_y):
         parser.print_help()
+        return
 
     pixel_size = (1.0, 1.0)
     if args.sample:
