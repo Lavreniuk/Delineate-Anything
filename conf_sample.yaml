@@ -70,6 +70,7 @@ passes:
 
       # Join fields left split along tile borders (straight cuts on a 1280 m grid for S2)
       merge_tile_seams: true
+      merge_region_seams: true     # the same for fields split by region borders (execution_planner region size)
       seam_min_contact_px: 8       # minimum contact along the border (px after super-resolution)
       seam_min_coverage: 0.3       # contact / longer of the two cut edges on the border
       seam_min_evidence: 0.5       # share of the contact the centred tile must see as one field (where it saw a boundary)
