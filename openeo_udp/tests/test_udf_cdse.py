@@ -100,7 +100,7 @@ IOU_THRESHOLD = 0.3
 MORPHOLOGY = False
 
 from pathlib import Path
-UDF_PATH = Path('C:\\Git_projects\\Delineate-Anything\\openeo_udp\\udf\\delineate_onnx.py')
+UDF_PATH = Path(__file__).resolve().parents[1] / "udf" / "delineate_onnx.py"
 
 # S2 bands for RGB (true colour: B04, B03, B02).
 S2_RGB_BANDS = ["B04", "B03", "B02"]
@@ -396,4 +396,3 @@ if __name__ == "__main__":
     main()
 
 #%%
-
