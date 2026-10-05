@@ -1,7 +1,7 @@
 {
   "id": "delineate_anything",
   "summary": "Delineate field boundaries from Sentinel-2 imagery.",
-  "description": "Delineate Anything v2 is a resolution-agnostic global foundation model for agricultural field boundary detection from satellite imagery (Lavreniuk et al., ECCV 2026, arXiv:2607.19069). Built on a YOLO instance-segmentation backbone and trained on FBIS-73M — a 73-million-instance dataset spanning 61 countries and resolutions from 0.25 m to 10 m — it provides an accurate and efficient delineation methodology.\n\nThis process composes a Best-Available-Pixel (BAP) Sentinel-2 L2A RGB mosaic over the requested geometry and temporal window, then applies the Delineate Anything v2 ONNX model tile-wise (512x512 px with overlap) via a Python UDF to return per-field instance labels as a GeoTIFF. The YOLO backbone was exported to ONNX; the segmentation head was reimplemented inside the UDF using numpy + onnxruntime only (no torch / ultralytics runtime dependency).",
+  "description": "Delineate Anything v2 is a resolution-agnostic global foundation model for agricultural field boundary detection from satellite imagery (Lavreniuk et al., ECCV 2026, arXiv:2607.19069). Built on a YOLO instance-segmentation backbone and trained on FBIS-73M \u2014 a 73-million-instance dataset spanning 61 countries and resolutions from 0.25 m to 10 m \u2014 it provides an accurate and efficient delineation methodology.\n\nThis process composes a Best-Available-Pixel (BAP) Sentinel-2 L2A RGB mosaic over the requested geometry and temporal window, then applies the Delineate Anything v2 ONNX model tile-wise (512x512 px with overlap) via a Python UDF to return per-field instance labels as a GeoTIFF. The YOLO backbone was exported to ONNX; the segmentation head was reimplemented inside the UDF using numpy + onnxruntime only (no torch / ultralytics runtime dependency).\n",
   "default_job_options": {
     "udf-dependency-archives": [
       "https://s3.waw3-1.cloudferro.com/project_dependencies/onnx_deps_python311.zip#onnx_deps",
@@ -12,6 +12,10 @@
     {
       "name": "geometry",
       "description": "GeoJSON geometry defining the area of interest.",
+      "schema": {
+        "type": "object",
+        "subtype": "geojson"
+      },
       "default": {
         "type": "Polygon",
         "coordinates": [
@@ -38,10 +42,6 @@
             ]
           ]
         ]
-      },
-      "schema": {
-        "type": "object",
-        "subtype": "geojson"
       }
     },
     {
@@ -49,11 +49,27 @@
       "description": "Temporal interval as [start, end] ISO-8601 date strings.",
       "schema": {
         "type": "array",
-        "items": {
-          "type": "string"
-        },
+        "subtype": "temporal-interval",
+        "uniqueItems": true,
         "minItems": 2,
-        "maxItems": 2
+        "maxItems": 2,
+        "items": {
+          "anyOf": [
+            {
+              "type": "string",
+              "subtype": "date-time",
+              "format": "date-time"
+            },
+            {
+              "type": "string",
+              "subtype": "date",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
       }
     }
   ],
@@ -123,39 +139,6 @@
         }
       }
     },
-    "reducedimension2": {
-      "process_id": "reduce_dimension",
-      "arguments": {
-        "data": {
-          "from_node": "apply1"
-        },
-        "dimension": "bands",
-        "reducer": {
-          "process_graph": {
-            "mean1": {
-              "process_id": "mean",
-              "arguments": {
-                "data": {
-                  "from_parameter": "data"
-                }
-              },
-              "result": true
-            }
-          }
-        }
-      }
-    },
-    "adddimension1": {
-      "process_id": "add_dimension",
-      "arguments": {
-        "data": {
-          "from_node": "reducedimension2"
-        },
-        "label": "composite",
-        "name": "bands",
-        "type": "bands"
-      }
-    },
     "applyneighborhood1": {
       "process_id": "apply_neighborhood",
       "arguments": {
@@ -207,17 +190,6 @@
             "unit": "px"
           }
         ]
-      }
-    },
-    "mergecubes1": {
-      "process_id": "merge_cubes",
-      "arguments": {
-        "cube1": {
-          "from_node": "adddimension1"
-        },
-        "cube2": {
-          "from_node": "applyneighborhood1"
-        }
       },
       "result": true
     }
