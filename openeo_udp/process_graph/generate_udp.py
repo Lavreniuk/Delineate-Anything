@@ -82,15 +82,9 @@ def build_udp(
         name="geometry",
         description="GeoJSON geometry defining the area of interest.",
     )
-    temporal_extent = Parameter(
+    temporal_extent = Parameter.temporal_interval(
         name="temporal_extent",
         description="Temporal interval as [start, end] ISO-8601 date strings.",
-        schema={
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 2,
-            "maxItems": 2,
-        },
     )
 
     conn = openeo.connect(backend)
