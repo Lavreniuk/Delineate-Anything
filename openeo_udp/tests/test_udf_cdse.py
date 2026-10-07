@@ -184,11 +184,12 @@ def build_delineate_onnx(
     processing_options : optional UDF context dict/Parameter that overrides
                          any of the above at runtime
 
-    Returns
-    -------
-    openeo.DataCube with 1 band (``instances``): float32 integer instance IDs
-    (0 = background).  Downstream ops can polygonize, filter by area, or
-    re-label across tile boundaries.
+        Returns
+        -------
+        openeo.DataCube with 2 bands:
+        - ``composite``: mean RGB composite in [0, 1] used as a lightweight
+            visualization/debug layer.
+        - ``instances``: float32 integer instance IDs (0 = background).
     """
     if bap_cube is not None:
         composite = bap_cube
@@ -219,28 +220,41 @@ def build_delineate_onnx(
             {"dimension": "y", "value": CHUNK_OVERLAP_PX, "unit": "px"},
         ],
     )
-    return detected
+
+    # Export one composite diagnostic band so UDP output includes both
+    # the source image layer and delineation result in a single cube.
+    composite_band = composite.reduce_dimension(dimension="bands", reducer="mean")
+    composite_band = composite_band.add_dimension(name="bands", label="composite", type="bands")
+
+    return composite_band.merge_cubes(detected)
 
 
-def _load_instance_raster(path: Path | str) -> np.ndarray:
-    """Read a GeoTIFF result into a 2D label map."""
+def _load_result_bands(path: Path | str) -> tuple[np.ndarray | None, np.ndarray]:
+    """Read a GeoTIFF result into (composite_band, instance_labels).
+
+    Supports both legacy 1-band output (instances only) and new 2-band output
+    where band 1 is composite preview and band 2 is instance IDs.
+    """
     with rasterio.open(path) as src:
         arr = src.read()
 
     if arr.size == 0:
-        return np.zeros((0, 0), dtype=np.int32)
+        return None, np.zeros((0, 0), dtype=np.int32)
 
-    if arr.ndim == 3:
-        arr = arr[0] if arr.shape[0] == 1 else arr.transpose(1, 2, 0)
-    arr = np.asarray(arr)
+    if arr.ndim != 3:
+        raise ValueError(f"Unexpected raster shape: {arr.shape}")
 
-    if arr.ndim == 3:
-        arr = arr[:, :, 0]
+    composite = None
+    if arr.shape[0] >= 2:
+        composite = np.asarray(arr[0], dtype=np.float32)
+        labels = np.asarray(arr[1])
+    else:
+        labels = np.asarray(arr[0])
 
-    if np.issubdtype(arr.dtype, np.floating):
-        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    if np.issubdtype(labels.dtype, np.floating):
+        labels = np.nan_to_num(labels, nan=0.0, posinf=0.0, neginf=0.0)
 
-    return arr.astype(np.int32, copy=False)
+    return composite, labels.astype(np.int32, copy=False)
 
 
 def _recombine_chunked_instances(label_map: np.ndarray) -> np.ndarray:
@@ -297,10 +311,10 @@ def _download_result_tiles(job: openeo.BatchJob, output_dir: Path | str) -> list
     return tif_files
 
 
-def _mosaic_result_tiles(tif_files: list[Path]) -> np.ndarray:
-    """Mosaic multiple result tiles into one array if the job produced several files."""
+def _mosaic_result_tiles(tif_files: list[Path]) -> tuple[np.ndarray | None, np.ndarray]:
+    """Mosaic multiple result tiles into (composite_band, instance_labels)."""
     if len(tif_files) == 1:
-        return _load_instance_raster(tif_files[0])
+        return _load_result_bands(tif_files[0])
 
     datasets = [rasterio.open(p) for p in tif_files]
     try:
@@ -311,22 +325,48 @@ def _mosaic_result_tiles(tif_files: list[Path]) -> np.ndarray:
         for ds in datasets:
             ds.close()
 
-    if mosaic.ndim == 3:
-        mosaic = mosaic[0] if mosaic.shape[0] == 1 else mosaic.transpose(1, 2, 0)
+    if mosaic.ndim != 3:
+        raise ValueError(f"Unexpected mosaiced shape: {mosaic.shape}")
+
     arr = np.asarray(mosaic)
-    if arr.ndim == 3:
-        arr = arr[:, :, 0]
-    return arr.astype(np.int32, copy=False)
+    composite = None
+    if arr.shape[0] >= 2:
+        composite = arr[0].astype(np.float32, copy=False)
+        labels = arr[1]
+    else:
+        labels = arr[0]
+
+    if np.issubdtype(labels.dtype, np.floating):
+        labels = np.nan_to_num(labels, nan=0.0, posinf=0.0, neginf=0.0)
+    return composite, labels.astype(np.int32, copy=False)
 
 
-def _visualize_instance_map(label_map: np.ndarray, title: str, save_path: Path | str) -> None:
-    """Create a simple overlay plot of the final merged instances."""
+def _visualize_instance_map(
+    label_map: np.ndarray,
+    title: str,
+    save_path: Path | str,
+    composite_band: np.ndarray | None = None,
+) -> None:
+    """Create an instance preview; overlays on composite if available."""
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(10, 10))
+    if composite_band is not None and composite_band.size:
+        base = np.asarray(composite_band, dtype=np.float32)
+        finite = np.isfinite(base)
+        if finite.any():
+            lo = np.percentile(base[finite], 2)
+            hi = np.percentile(base[finite], 98)
+            if hi <= lo:
+                hi = lo + 1e-6
+            base = np.clip((base - lo) / (hi - lo), 0.0, 1.0)
+        else:
+            base = np.zeros_like(base, dtype=np.float32)
+        ax.imshow(base, cmap="gray", interpolation="nearest")
+
     masked = np.ma.masked_where(label_map == 0, label_map)
-    ax.imshow(masked, cmap="tab20", interpolation="nearest")
+    ax.imshow(masked, cmap="prism", interpolation="nearest", alpha=0.6)
     ax.set_title(title)
     ax.axis("off")
     fig.tight_layout()
@@ -335,19 +375,34 @@ def _visualize_instance_map(label_map: np.ndarray, title: str, save_path: Path |
 
 
 def _download_and_visualize_batch_result(job: openeo.BatchJob, output_dir: Path | str) -> np.ndarray:
-    """Download a batch result, recombine chunk-local labels, and save a preview plot."""
+    """Download a batch result, recombine labels, and save preview(s)."""
     output_dir = Path(output_dir)
     tile_paths = _download_result_tiles(job, output_dir)
-    raw_labels = _mosaic_result_tiles(tile_paths)
+    composite_band, raw_labels = _mosaic_result_tiles(tile_paths)
     merged_labels = _recombine_chunked_instances(raw_labels)
 
     preview_path = output_dir / "merged_instances_preview.png"
-    _visualize_instance_map(merged_labels, "Merged chunked instance labels", preview_path)
+    _visualize_instance_map(
+        merged_labels,
+        "Merged chunked instance labels",
+        preview_path,
+        composite_band=composite_band,
+    )
+
+    if composite_band is not None and composite_band.size:
+        composite_only_path = output_dir / "composite_preview.png"
+        _visualize_instance_map(
+            np.zeros_like(merged_labels, dtype=np.int32),
+            "Composite preview",
+            composite_only_path,
+            composite_band=composite_band,
+        )
+        print(f"Saved composite preview: {composite_only_path}")
 
     print(f"Downloaded result files: {[p.name for p in tile_paths]}")
     print(f"Raw label stats: min={raw_labels.min() if raw_labels.size else 0}, max={raw_labels.max() if raw_labels.size else 0}")
     print(f"Merged label stats: min={merged_labels.min() if merged_labels.size else 0}, max={merged_labels.max() if merged_labels.size else 0}")
-    print(f"Saved merged preview: {preview_path}")
+    print(f"Saved overlay preview: {preview_path}")
     return merged_labels
 
 
@@ -360,16 +415,18 @@ def main() -> None:
     conn = openeo.connect(backend)
     conn.authenticate_oidc()
 
+    # Palouse (SE Washington, USA), ~10 km x 10 km around rolling croplands.
     geometry = {
         "type": "Polygon",
         "coordinates": [[
-            [4.997886465978867, 51.000003053347534],
-            [5.0500127304842835, 50.99909971909893],
-            [5.052258312621218, 51.04996441050298],
-            [5.000075043015026, 51.05086937572316],
-            [4.997886465978867, 51.000003053347534],
+            [-117.0635, 46.7150],
+            [-116.9325, 46.7150],
+            [-116.9325, 46.8050],
+            [-117.0635, 46.8050],
+            [-117.0635, 46.7150],
         ]],
     }
+    
 
     cube = build_delineate_onnx(
         connection=conn,
@@ -381,7 +438,7 @@ def main() -> None:
     job = cube.execute_batch(
         outputfile=output_path,
         out_format="GTiff",
-        title="Delineate-Anything demo (PyTorch UDF)",
+        title="Delineate-Anything demo (Palouse 10x10 km)",
         job_options=DEFAULT_JOB_OPTIONS,
     )
     print(f"Submitted job {job.job_id}")
