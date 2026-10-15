@@ -71,7 +71,7 @@ TILE_X_START = 100
 TILE_Y_START = 100
 
 CONFIDENCE_THRESHOLD = 0.15
-IOU_THRESHOLD = 0.3
+IOU_THRESHOLD = 0.7
 MORPHOLOGY = False
 
 # Ultralytics `predict()` defaults — must be mirrored on the ONNX side.

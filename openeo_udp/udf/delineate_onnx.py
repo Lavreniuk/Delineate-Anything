@@ -1,4 +1,5 @@
-#%%
+
+
 """OpenEO UDF: Delineate-Anything field boundary detection via ONNX Runtime.
 
 The model artefact (``DelineateAnythingv2.onnx``) and the ONNX runtime are
@@ -17,20 +18,23 @@ Invocation
 Call via ``apply_neighborhood`` on chunks of shape ``(bands=3, y=512, x=512)``
 with RGB reflectance scaled to ``[0, 1]``.
 
-Chunked instance IDs
---------------------
-The output band ``instances`` is a per-chunk label map: ``0`` is background
-and ``1..N`` are the detections *inside this chunk only*. Instance IDs are
-NOT globally unique across chunks — merging / re-labelling across tile
-boundaries must be done downstream (e.g. by polygonising and re-numbering).
+Instance IDs
+------------
+The output band ``instances`` is a label map: ``0`` is background. Every
+connected region inside the kept chunk core (``chunk_core_px``) gets its own
+ID, derived from the global pixel position of its most central pixel, so IDs
+are unique within a ~41 km window (4095 px at 10 m; float32-exact).
+Fields crossing a chunk border are still split into two IDs; merging those
+must happen downstream.
 
 Context overrides::
 
     {
         "weights_path": "onnx_models/DelineateAnythingv2.onnx",
         "confidence_threshold": 0.15,
-        "iou_threshold": 0.3,
+        "iou_threshold": 0.7,
         "morphology": false,
+        "chunk_core_px": 384,
     }
 """
 
@@ -42,6 +46,7 @@ from pathlib import Path
 
 import numpy as np
 import xarray as xr
+from scipy import ndimage
 
 from openeo.udf import XarrayDataCube
 from openeo.metadata import CollectionMetadata
@@ -65,7 +70,7 @@ DEFAULT_ONNX_MODEL_NAME = "DelineateAnythingv2.onnx"
 DEFAULT_WEIGHTS_PATH = f"onnx_models/{DEFAULT_ONNX_MODEL_NAME}"
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.15
-DEFAULT_IOU_THRESHOLD = 0.3
+DEFAULT_IOU_THRESHOLD = 0.7  # ultralytics default
 DEFAULT_MORPHOLOGY = False
 MODEL_INPUT_SIZE = 512
 
@@ -348,6 +353,42 @@ def _predict_tile(
     return label_map
 
 
+def _assign_ids(
+    label_map: np.ndarray, cube: xr.DataArray, y_dim: str, x_dim: str, core_px: int
+) -> np.ndarray:
+    """Give every 4-connected region of the kept chunk core a globally unique ID.
+
+    The ID encodes the global pixel position of the region's pixel closest to
+    its centroid. Regions never share pixels, so IDs are unique; positions wrap
+    every 4095 px (4095**2 < 2**24 keeps IDs exact in float32).
+    """
+    h, w = label_map.shape
+    my, mx = max(0, (h - core_px) // 2), max(0, (w - core_px) // 2)
+    core = np.zeros_like(label_map)
+    core[my:h - my, mx:w - mx] = label_map[my:h - my, mx:w - mx]
+
+    def _grid(dim: str, n: int) -> np.ndarray:
+        if dim in cube.coords and cube.coords[dim].size > 1:
+            c = cube.coords[dim].values.astype(np.float64)
+            return np.floor(c / abs(c[1] - c[0])).astype(np.int64) % 4095
+        return np.arange(n) % 4095
+
+    gy, gx = _grid(y_dim, h), _grid(x_dim, w)
+    out = np.zeros_like(label_map)
+    for i, sl in enumerate(ndimage.find_objects(core), start=1):
+        if sl is None:
+            continue
+        comps, _ = ndimage.label(core[sl] == i)
+        for c, csl in enumerate(ndimage.find_objects(comps), start=1):
+            cm = comps[csl] == c
+            yy, xx = np.nonzero(cm)
+            k = np.argmin((yy - yy.mean()) ** 2 + (xx - xx.mean()) ** 2)
+            r = sl[0].start + csl[0].start + yy[k]
+            q = sl[1].start + csl[1].start + xx[k]
+            out[sl][csl][cm] = gy[r] * 4095 + gx[q] + 1
+    return out
+
+
 # ===========================================================================
 # openEO UDF entry points
 # ===========================================================================
@@ -368,6 +409,7 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
     conf = float(context.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
     iou = float(context.get("iou_threshold", DEFAULT_IOU_THRESHOLD))
     morphology = bool(context.get("morphology", DEFAULT_MORPHOLOGY))
+    core_px = int(context.get("chunk_core_px", 384))
 
     if hasattr(cube, "get_array"):
         cube = cube.get_array()
@@ -447,7 +489,9 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
         if nan_mask.any():
             label_map[nan_mask] = 0
 
-    n_fields = int(label_map.max())
+        label_map = _assign_ids(label_map, cube, y_dim, x_dim, core_px)
+
+    n_fields = int((np.unique(label_map) > 0).sum())
     logger.info(
         "Tile done: %d fields, foreground pct=%.2f%%",
         n_fields, 100.0 * (label_map > 0).sum() / max(label_map.size, 1),

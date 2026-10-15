@@ -30,8 +30,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from openeo_udp.tests.test_udf_cdse import (  # noqa: E402
+    CONFIDENCE_THRESHOLD,
     DEFAULT_JOB_OPTIONS,
     DEFAULT_WEIGHTS_URL,
+    IOU_THRESHOLD,
     build_delineate_onnx,
 )
 
@@ -64,10 +66,16 @@ FBIS-73M — a 73-million-instance dataset spanning 61 countries and resolutions
 
 This process composes a Best-Available-Pixel (BAP) Sentinel-2 L2A RGB mosaic over the \
 requested geometry and temporal window, then applies the Delineate Anything v2 ONNX \
-model tile-wise (512x512 px with overlap) via a Python UDF to return per-field instance \
-labels as a GeoTIFF. The YOLO backbone was exported to ONNX; the segmentation head was \
-reimplemented inside the UDF using numpy + onnxruntime only (no torch / ultralytics \
-runtime dependency).
+model tile-wise (512x512 px with overlap) via a Python UDF. The per-field instance \
+labels are polygonised with `raster_to_vector`, so the result is a vector cube: save it \
+as GeoJSON (or GeoParquet), one polygon per detected field. The YOLO backbone was \
+exported to ONNX; the segmentation head was reimplemented inside the UDF using \
+numpy + onnxruntime only (no torch / ultralytics runtime dependency).
+
+Inference runs on 384 px chunks (plus 64 px context). A second (vector) UDF merges \
+polygons that were cut by a chunk seam and adds `field_id`, numbered 1..N from north \
+to south, west to east; `band0` keeps a position-based ID. Two different fields that \
+touch exactly on a seam line may be merged.
 """
 
 
@@ -86,6 +94,16 @@ def build_udp(
         name="temporal_extent",
         description="Temporal interval as [start, end] ISO-8601 date strings.",
     )
+    iou_threshold = Parameter.number(
+        name="iou_threshold",
+        description="NMS IoU threshold. Lower values suppress more overlapping detections.",
+        default=IOU_THRESHOLD,
+    )
+    confidence_threshold = Parameter.number(
+        name="confidence_threshold",
+        description="Minimum detection confidence.",
+        default=CONFIDENCE_THRESHOLD,
+    )
 
     conn = openeo.connect(backend)
     cube = build_delineate_onnx(
@@ -93,6 +111,8 @@ def build_udp(
         geometry=geometry,
         temporal_extent=temporal_extent,
         weights_url=weights_url,
+        iou_threshold=iou_threshold,
+        confidence_threshold=confidence_threshold,
     )
 
     geometry_dict = geometry.to_dict()
@@ -103,7 +123,16 @@ def build_udp(
         "summary": "Delineate field boundaries from Sentinel-2 imagery.",
         "description": DEFAULT_DESCRIPTION,
         "default_job_options": DEFAULT_JOB_OPTIONS,
-        "parameters": [geometry_dict, temporal_extent.to_dict()],
+        "parameters": [
+            geometry_dict,
+            temporal_extent.to_dict(),
+            iou_threshold.to_dict(),
+            confidence_threshold.to_dict(),
+        ],
+        "returns": {
+            "description": "Vector cube with one polygon per detected field.",
+            "schema": {"type": "object", "subtype": "datacube", "dimensions": [{"type": "geometry"}]},
+        },
         "process_graph": cube.flat_graph(),
     }
 
