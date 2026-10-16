@@ -52,30 +52,42 @@ DEFAULT_PALOUSE_GEOMETRY = {
     ]],
 }
 
-DEFAULT_UDP_URL = (
-    "https://raw.githubusercontent.com/Lavreniuk/Delineate-Anything/"
-    "refs/heads/main/openeo_udp/process_graph/delineate_anything_udp.json"
-)
 
 DEFAULT_DESCRIPTION = """\
-Delineate Anything v2 is a resolution-agnostic global foundation model for agricultural \
+This process targets one core problem in agricultural remote sensing: turning broad, \
+repeated satellite coverage into field-level structure that can be compared across time \
+and places. Instead of emphasizing pixel-wise texture alone, it emphasizes parcel \
+coherence, boundary continuity, and map readability.
+
+In practical terms, this helps users move from "imagery" to "field units" that are easier \
+to interpret for crop monitoring, stratified sampling, landscape diagnostics, and \
+downstream analytics where parcel identity matters.
+
+The underlying model is Delineate Anything v2, a resolution-agnostic global foundation model for agricultural \
 field boundary detection from satellite imagery (Lavreniuk et al., ECCV 2026, \
 arXiv:2607.19069). Built on a YOLO instance-segmentation backbone and trained on \
 FBIS-73M — a 73-million-instance dataset spanning 61 countries and resolutions from \
-0.25 m to 10 m — it provides an accurate and efficient delineation methodology.
+0.25 m to 10 m — it is designed to map field structure consistently across diverse \
+landscapes, seasons, and management regimes.
 
-This process composes a Best-Available-Pixel (BAP) Sentinel-2 L2A RGB mosaic over the \
-requested geometry and temporal window, then applies the Delineate Anything v2 ONNX \
-model tile-wise (512x512 px with overlap) via a Python UDF. The per-field instance \
-labels are polygonised with `raster_to_vector`, so the result is a vector cube: save it \
-as GeoJSON (or GeoParquet), one polygon per detected field. The YOLO backbone was \
-exported to ONNX; the segmentation head was reimplemented inside the UDF using \
-numpy + onnxruntime only (no torch / ultralytics runtime dependency).
+This process is organized as a four-stage pipeline from reflectance to parcel geometry:
 
-Inference runs on 384 px chunks (plus 64 px context). A second (vector) UDF merges \
-polygons that were cut by a chunk seam and adds `field_id`, numbered 1..N from north \
-to south, west to east; `band0` keeps a position-based ID. Two different fields that \
-touch exactly on a seam line may be merged.
+1) Sentinel-2 preparation. A Best-Available-Pixel (BAP) Sentinel-2 L2A RGB composite is \
+assembled for the requested geometry and temporal interval.
+2) Tile-wise instance segmentation. The Delineate Anything v2 ONNX model runs in a \
+Python UDF on 512x512 tiles with overlap to preserve boundary continuity near tile edges.
+3) Raster-to-vector conversion. Instance labels are polygonised with `raster_to_vector`, \
+yielding a vector cube where each polygon represents one detected field candidate.
+4) Seam reconciliation and ordering. A second vector UDF merges polygons split by chunk \
+boundaries and assigns `field_id` from north to south, west to east for stable indexing.
+
+Operationally, inference keeps a 384 px core per tile and uses 64 px context overlap on \
+each side. The raster UDF encodes chunk identity, enabling deterministic seam \
+reconciliation in the vector UDF. Output is intended for direct export as GeoJSON or \
+GeoParquet.
+
+Known limitation: if two truly different fields share exactly the same border along a \
+chunk seam, they may be merged during seam reconciliation.
 """
 
 

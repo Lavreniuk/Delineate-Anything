@@ -72,7 +72,6 @@ DEFAULT_WEIGHTS_URL = "onnx_models/DelineateAnythingv2.onnx"
 # straddle tile boundaries be reconciled downstream.
 CHUNK_INNER_PX = 384
 CHUNK_OVERLAP_PX = 64
-RESOLUTION = 10
 
 # Detection / post-processing defaults (validated locally on BAP_input.nc).
 CONFIDENCE_THRESHOLD = 0.15
@@ -84,6 +83,9 @@ SORT_UDF_PATH = UDF_PATH.with_name("sort_fields.py")
 
 # S2 bands for RGB (true colour: B04, B03, B02).
 S2_RGB_BANDS = ["B04", "B03", "B02"]
+
+
+
 
 #%%
 # ---------------------------------------------------------------------------
@@ -166,7 +168,7 @@ def build_delineate_onnx(
 
     Returns
     -------
-    Vector cube, one polygon per field: ``band0`` (position-based ID) and
+    Vector cube, one polygon per field: ``band0`` (chunk-coded ID) and
     ``field_id`` (1..N, north->south, west->east), chunk-seam splits merged.
     """
     if bap_cube is not None:
@@ -204,11 +206,7 @@ def build_delineate_onnx(
     # Background (0) -> nodata so only fields are polygonised.
     fields = detected.mask(detected == 0).raster_to_vector()
     # Second UDF: merge polygons split by chunk seams, add field_id 1..N.
-    sort_udf = openeo.UDF(
-        SORT_UDF_PATH.read_text(encoding="utf-8"),
-        runtime="Python",
-        context={"seam_step_m": CHUNK_INNER_PX * RESOLUTION},  # 10 m S2 pixels
-    )
+    sort_udf = openeo.UDF(SORT_UDF_PATH.read_text(encoding="utf-8"), runtime="Python")
     return fields.apply_dimension(process=sort_udf, dimension="geometry")
 
 
@@ -251,5 +249,36 @@ def main() -> None:
     print(f"Job {job.job_id} results in {result_dir}")
 
 
-if __name__ == "__main__":
-    main()
+#%%
+def plot_vectorcube_geojson(result_dir: Path) -> None:
+    """Plot the downloaded vectorcube GeoJSON with field_id labels."""
+    import geopandas as gpd
+    import matplotlib.pyplot as plt
+
+    vector_path = result_dir / "vectorcube.geojson"
+    if not vector_path.exists():
+        print(f"No vectorcube result found at: {vector_path}")
+        return
+
+    fields = gpd.read_file(vector_path)
+    if fields.empty:
+        print(f"Vector cube is empty: {vector_path}")
+        return
+
+    column = "field_id" if "field_id" in fields.columns else "band0"
+    ax = fields.plot(
+        column=column,
+        cmap="viridis",
+        edgecolor="black",
+        linewidth=0.2,
+        figsize=(10, 10),
+    )
+    for fid, pt in zip(fields[column], fields.representative_point()):
+        ax.annotate(str(fid), (pt.x, pt.y), ha="center", va="center", fontsize=4)
+    ax.set_title(f"{len(fields)} fields ({column})")
+    ax.set_axis_off()
+    plt.show()
+
+plot_vectorcube_geojson(Path("C:/Git_projects/Delineate-Anything/openeo_udp/process_graph/delineate_fields_result"))
+
+# %%

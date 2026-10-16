@@ -3,33 +3,24 @@
 Run on the ``raster_to_vector`` output via
 ``vector_cube.apply_dimension(process=udf, dimension="geometry")``.
 
-Seams: chunk cores abut, so a field cut by a seam becomes two polygons sharing
-a straight edge on a line ``x (or y) = phase + k * seam_step_m``. The phase is
-taken from the data: the position (mod step) carrying by far the most shared
-straight-edge length. Only pairs sharing an edge on that line are merged.
+Seams: the raster UDF encodes the chunk of every polygon in its ID
+(``band0 // 4096``). Chunk cores do not overlap, so two polygons from
+different chunks can only share an edge on a seam: those pairs are merged.
+Pairs that only meet at a corner point are left alone.
 
 ``field_id`` is 1..N sorted north->south, west->east; ``band0`` keeps the
-(lowest) position-based ID of the merged pieces.
+lowest ID of the merged pieces.
 """
 
 import numpy as np
-import shapely
 from openeo.udf import FeatureCollection, UdfData
 
 
-def _seam_merge(gdf, step: float):
+def _seam_merge(gdf):
     gdf = gdf.reset_index(drop=True)
+    chunk = gdf["band0"].to_numpy().astype(np.int64) // 4096
     left, right = gdf.sindex.query(gdf.geometry, predicate="touches")
-    edges = []  # (i, j, axis, coord mod step, length)
-    for i, j in zip(left[left < right], right[left < right]):
-        shared = shapely.line_merge(gdf.geometry[i].boundary.intersection(gdf.geometry[j].boundary))
-        for part in getattr(shared, "geoms", [shared]):
-            if part.geom_type != "LineString":
-                continue
-            xy = np.asarray(part.coords)
-            for axis in (0, 1):
-                if (xy[:, axis] == xy[0, axis]).all():
-                    edges.append((i, j, axis, round(xy[0, axis] % step, 1), part.length))
+    pairs = (left < right) & (chunk[left] != chunk[right])
 
     parent = list(range(len(gdf)))
 
@@ -39,19 +30,9 @@ def _seam_merge(gdf, step: float):
             a = parent[a]
         return a
 
-    for axis in (0, 1):
-        totals = {}
-        for _, _, ax, ph, ln in edges:
-            if ax == axis:
-                totals[ph] = totals.get(ph, 0.0) + ln
-        ranked = sorted(totals.values(), reverse=True)
-        # Only trust a phase that clearly dominates (no seam -> nothing merged).
-        if not ranked or (len(ranked) > 1 and ranked[0] < 3 * ranked[1]):
-            continue
-        seam = max(totals, key=totals.get)
-        for i, j, ax, ph, _ in edges:
-            if ax == axis and ph == seam:
-                parent[find(i)] = find(j)
+    for i, j in zip(left[pairs], right[pairs]):
+        if gdf.geometry[i].intersection(gdf.geometry[j]).length > 0:  # shared edge, not a corner
+            parent[find(i)] = find(j)
 
     gdf["_grp"] = [find(i) for i in range(len(gdf))]
     merged = gdf.dissolve("_grp", aggfunc="min").reset_index(drop=True)
@@ -59,9 +40,8 @@ def _seam_merge(gdf, step: float):
 
 
 def apply_udf_data(data: UdfData) -> UdfData:
-    context = data.user_context or {}
     fc = data.get_feature_collection_list()[0]
-    gdf = _seam_merge(fc.data, float(context.get("seam_step_m", 3840)))
+    gdf = _seam_merge(fc.data)
     pts = gdf.representative_point()
     gdf = gdf.iloc[np.lexsort((pts.x.values, -pts.y.values))].reset_index(drop=True)
     gdf["field_id"] = np.arange(1, len(gdf) + 1)

@@ -22,10 +22,11 @@ Instance IDs
 ------------
 The output band ``instances`` is a label map: ``0`` is background. Every
 connected region inside the kept chunk core (``chunk_core_px``) gets its own
-ID, derived from the global pixel position of its most central pixel, so IDs
-are unique within a ~41 km window (4095 px at 10 m; float32-exact).
-Fields crossing a chunk border are still split into two IDs; merging those
-must happen downstream.
+ID ``chunk_code * 4096 + n`` (n = 1..4095 within the chunk). ``chunk_code``
+is the core's position in the chunk grid (64 x 64, wrapping), so IDs are
+unique within a 64-chunk window and exact in float32 (< 2**24).
+Fields crossing a chunk border are still split into two IDs; the vector UDF
+(``sort_fields.py``) merges them using ``ID // 4096``.
 
 Context overrides::
 
@@ -356,36 +357,34 @@ def _predict_tile(
 def _assign_ids(
     label_map: np.ndarray, cube: xr.DataArray, y_dim: str, x_dim: str, core_px: int
 ) -> np.ndarray:
-    """Give every 4-connected region of the kept chunk core a globally unique ID.
-
-    The ID encodes the global pixel position of the region's pixel closest to
-    its centroid. Regions never share pixels, so IDs are unique; positions wrap
-    every 4095 px (4095**2 < 2**24 keeps IDs exact in float32).
+    """Give every 4-connected region of the kept chunk core the ID
+    ``chunk_code * 4096 + n``; see the module docstring.
     """
     h, w = label_map.shape
     my, mx = max(0, (h - core_px) // 2), max(0, (w - core_px) // 2)
     core = np.zeros_like(label_map)
     core[my:h - my, mx:w - mx] = label_map[my:h - my, mx:w - mx]
 
-    def _grid(dim: str, n: int) -> np.ndarray:
+    def _chunk(dim: str, start: int) -> int:
+        # Index of this core in the chunk grid: neighbouring cores start
+        # core_px pixels apart, so their indices differ by exactly 1.
         if dim in cube.coords and cube.coords[dim].size > 1:
             c = cube.coords[dim].values.astype(np.float64)
-            return np.floor(c / abs(c[1] - c[0])).astype(np.int64) % 4095
-        return np.arange(n) % 4095
+            return int(np.floor(c[start] / abs(c[1] - c[0]) / core_px)) % 64
+        return 0
 
-    gy, gx = _grid(y_dim, h), _grid(x_dim, w)
+    code = _chunk(y_dim, my) * 64 + _chunk(x_dim, mx)
     out = np.zeros_like(label_map)
+    n = 0
     for i, sl in enumerate(ndimage.find_objects(core), start=1):
         if sl is None:
             continue
-        comps, _ = ndimage.label(core[sl] == i)
-        for c, csl in enumerate(ndimage.find_objects(comps), start=1):
-            cm = comps[csl] == c
-            yy, xx = np.nonzero(cm)
-            k = np.argmin((yy - yy.mean()) ** 2 + (xx - xx.mean()) ** 2)
-            r = sl[0].start + csl[0].start + yy[k]
-            q = sl[1].start + csl[1].start + xx[k]
-            out[sl][csl][cm] = gy[r] * 4095 + gx[q] + 1
+        comps, k = ndimage.label(core[sl] == i)
+        for c in range(1, k + 1):
+            n += 1
+            out[sl][comps == c] = code * 4096 + n
+    if n > 4095:
+        raise ValueError(f"{n} regions in one chunk core; IDs support at most 4095")
     return out
 
 
