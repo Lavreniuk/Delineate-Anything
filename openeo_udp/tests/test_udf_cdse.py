@@ -279,6 +279,8 @@ def plot_vectorcube_geojson(result_dir: Path) -> None:
     ax.set_axis_off()
     plt.show()
 
-plot_vectorcube_geojson(Path("C:/Git_projects/Delineate-Anything/openeo_udp/process_graph/delineate_fields_result"))
+if __name__ == "__main__":
+    main()
+    plot_vectorcube_geojson(Path("delineate_fields_result"))
 
 # %%
