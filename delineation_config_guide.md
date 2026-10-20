@@ -111,3 +111,13 @@ before simplification, so both the `.gpkg` and the `.simp.gpkg` get them.
 The region size must be a multiple of the tile step (256 px after super-resolution for Sentinel-2; the automatic size
 always is). Otherwise the centred tile is not the same on both sides of the border and fewer pieces are joined.
 Set `merge_region_seams: false` to disable.
+
+## Giant filter (`giant_filter`)
+
+Over low-contrast land (pasture, scrub, hills, blocks of small fields) neighbouring tiles can chain fields into one
+huge polygon, often with straight tile-edge segments. With `enabled: true` (the default) such polygons are removed
+from the final layer. A polygon is removed if it spans at least 4 tiles and is several times larger than the fields
+around it (25 km cells, ignoring other suspects), and it also has straight tile-edge segments, holes left by fields
+inside it, or many field edges inside it on the image. All thresholds are relative to the local field sizes, so real
+large fields are kept. Made for 2.5-10 m imagery (skipped below 1 m); on 2.5 m input over very large fields (for
+example Ukraine) it may also remove some real fields. Requires a projected CRS. Set `enabled: false` to disable.

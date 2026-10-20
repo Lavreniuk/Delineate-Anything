@@ -12,6 +12,7 @@ from . import PostprocHandler as PostprocHandlerLib
 from .PostprocHandler import PostprocHandler
 from .PolygonizationWorker import PolygonizationWorker
 from .BackgroundLoader import BackgroundLoader
+from .giant_filter import filter_giants
 
 from simplification import simplify
 
@@ -203,6 +204,23 @@ def execute(model_paths, config, verbose):
         logger.info("Simplification started")
         execute_simplification(gpkg_path, layer_name, config["simplification_args"], analyser.scale)
         logger.info(f"Simplification finished in {time.time() - start:.2f} seconds")
+
+    giant_config = config.get("giant_filter", {})
+    if giant_config.get("enabled", True):
+        start = time.time()
+        final_path = gpkg_path.replace(".gpkg", ".simp.gpkg") if config["simplification_args"]["simplify"] == True else gpkg_path
+        image_path = final_path.replace(".gpkg", ".giant_filter.vrt")  # a file: rasterio does not see GDAL /vsimem
+        gdal.BuildVRT(image_path, tiffs)
+        bands = giant_config.get("image_bands") or config["data_loader"]["bands"]
+        pixel_m = analyser.get_pixel_size_meters(tiffs[0])
+        if pixel_m < 1:
+            logger.info("Giant filter skipped: it is made for 2.5-10 m imagery.")
+        else:
+            # inference tile: 512 model px, i.e. 512 / scale image px
+            tile_m = 512 * analyser.pixel_size_x / analyser.scale
+            filter_giants(final_path, layer_name, tile_m, image_path, bands)
+        os.remove(image_path)
+        logger.info(f"Giant filter finished in {time.time() - start:.2f} seconds")
 
 def normalize_nodata_config(loader_config):
     # nodata_band set   -> nodata_value is a single scalar compared against that band
