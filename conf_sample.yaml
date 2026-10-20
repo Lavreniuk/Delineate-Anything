@@ -102,6 +102,12 @@ filtering_args:
   minimum_middleground_field_area_m2: 10000
   minimum_middleground_field_hole_area_m2: 5000
 
+giant_filter:
+  # remove polygons chained across many tiles over low-contrast land (applied to the final layer)
+  enabled: True
+  # bands for the "field edges inside the polygon" check; null = data_loader bands
+  image_bands: null
+
 simplification_args:
   simplify: True
   epsilon_scale: 2
