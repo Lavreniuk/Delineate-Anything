@@ -61,7 +61,7 @@ TILE_Y_START = 100
 # if your input is already in [0, 1].
 CONTEXT = {
     "confidence_threshold": 0.15,
-    "iou_threshold": 0.3,
+    "iou_threshold": 0.7,
     "morphology": False,
     "input_scale": 1.0,
     "weights_path": str(LOCAL_ONNX_PATH),

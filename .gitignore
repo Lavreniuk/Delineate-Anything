@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# openEO job outputs
+openeo_udp/tests/delineate_fields_result/
+openeo_udp/tests/job-results.json
+
 # Large binary / data files
 *.zip
 *.onnx
