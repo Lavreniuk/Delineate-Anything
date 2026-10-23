@@ -39,6 +39,7 @@ def submit_udp_job(
     )
     return cube.create_job(
         title=title,
+        out_format="GeoJSON",
         job_options=job_options or DEFAULT_JOB_OPTIONS,
     )
 
