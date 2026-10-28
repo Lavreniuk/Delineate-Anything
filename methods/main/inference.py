@@ -61,6 +61,7 @@ def execute(model_paths, config, verbose):
     create_output_folder(os.path.dirname(output_path))
 
     tiffs = [os.path.join(src_folder, file) for file in sorted(os.listdir(src_folder)) if (file.endswith(".tif") or file.endswith(".tiff"))]
+    src_tiffs = list(tiffs)  # original inputs: the VRT below lives in temp_folder, which is deleted before the giant filter if keep_temp is false
     if config["treat_as_vrt"]:
         vrt_path = os.path.join(temp_folder, os.path.basename(src_folder) + ".vrt")
         gdal.BuildVRT(vrt_path, tiffs)
@@ -210,11 +211,11 @@ def execute(model_paths, config, verbose):
         start = time.time()
         final_path = gpkg_path.replace(".gpkg", ".simp.gpkg") if config["simplification_args"]["simplify"] == True else gpkg_path
         image_path = final_path.replace(".gpkg", ".giant_filter.vrt")  # a file: rasterio does not see GDAL /vsimem
-        gdal.BuildVRT(image_path, tiffs)
+        gdal.BuildVRT(image_path, src_tiffs)
         bands = giant_config.get("image_bands") or config["data_loader"]["bands"]
-        pixel_m = analyser.get_pixel_size_meters(tiffs[0])
+        pixel_m = analyser.get_pixel_size_meters(src_tiffs[0])
         if pixel_m < 1:
-            logger.info("Giant filter skipped: it is made for 2.5-10 m imagery.")
+            logger.info("Giant filter skipped: it is made for 2.5-10 m imagery and is not applied below 1 m.")
         else:
             # inference tile: 512 model px, i.e. 512 / scale image px
             tile_m = 512 * analyser.pixel_size_x / analyser.scale
